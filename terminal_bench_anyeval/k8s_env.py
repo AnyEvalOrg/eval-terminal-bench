@@ -56,6 +56,19 @@ def pinned_image(image):
 
 
 
+# The Linux capability set Docker grants an unprivileged container by default. The
+# official Terminal-Bench protocol runs tasks under Harbor's Docker environment with
+# exactly this set, and the 2.1 verifier template depends on it: apt-get drops to the
+# _apt user for downloads, which needs SETGID/SETUID, and root touches files owned by
+# _apt, which needs DAC_OVERRIDE. Contract v1.1 dropped every capability and every 2.1
+# verifier then failed at "setgroups 65534 failed" / "curl: command not found". Sorted,
+# because admission compares the sorted live set to this list.
+DOCKER_DEFAULT_CAPABILITIES = (
+    "AUDIT_WRITE", "CHOWN", "DAC_OVERRIDE", "FOWNER", "FSETID", "KILL", "MKNOD",
+    "NET_BIND_SERVICE", "NET_RAW", "SETFCAP", "SETGID", "SETPCAP", "SETUID", "SYS_CHROOT",
+)
+
+
 class AnyEvalInfrastructureError(RuntimeError):
     """A sandbox failure, never a benchmark reward."""
 
@@ -251,7 +264,7 @@ class AnyEvalK8sEnvironment(BaseEnvironment):
                                         "resources": {"requests": dict(resources), "limits": dict(resources)},
                                         "env": [{"name": k, "value": v} for k, v in self._startup_env().items()],
                                         "securityContext": {"runAsUser": 0, "privileged": False, "allowPrivilegeEscalation": False,
-                                                            "capabilities": {"drop": ["ALL"], "add": []}}}]}}
+                                                            "capabilities": {"drop": ["ALL"], "add": list(DOCKER_DEFAULT_CAPABILITIES)}}}]}}
         if e.workdir:
             pod["spec"]["containers"][0]["workingDir"] = e.workdir
         policy = {"apiVersion": "networking.k8s.io/v1", "kind": "NetworkPolicy",

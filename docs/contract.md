@@ -214,6 +214,16 @@ The adapter requests and checks no hostNetwork/hostPID/hostIPC, no hostPath,
 no additional init/ephemeral containers, no privileged execution, explicit
 `allowPrivilegeEscalation: false`, `automountServiceAccountToken: false`, the
 requested capability sets, gvisor runtime, and expected identity labels.
+The requested capability set is exactly the set Docker grants an unprivileged
+container by default (`DOCKER_DEFAULT_CAPABILITIES` in `k8s_env.py`: AUDIT_WRITE,
+CHOWN, DAC_OVERRIDE, FOWNER, FSETID, KILL, MKNOD, NET_BIND_SERVICE, NET_RAW,
+SETFCAP, SETGID, SETPCAP, SETUID, SYS_CHROOT), because the official protocol runs
+tasks under Harbor's Docker environment with that set and the 2.1 verifier template
+depends on it (apt-get drops to `_apt`, which needs SETGID/SETUID). Contract v1.1
+had dropped every capability; every 2.1 verifier then failed its health proof with
+"setgroups 65534 failed" and "curl: command not found". Admission still rejects any
+capability outside this list. Isolation rests on gVisor and the network policy,
+not on the capability set.
 2.1 images use `data/image-digests.json`, derived from the two recorded 2.1 sweeps;
 4.0 task metadata already uses digests. Created image references and observed
 main-container imageIDs must match the approved digest. The static tmux upload
