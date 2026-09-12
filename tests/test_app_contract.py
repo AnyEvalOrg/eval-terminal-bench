@@ -1,3 +1,7 @@
+from terminal_bench_anyeval.k8s_env import AnyEvalInfrastructureError
+from b5_fixtures import upgrade_synthetic_environment
+from terminal_bench_anyeval.bounded_io import as_file
+import os
 """One cross-repo boundary test: real child bytes -> real app parser/validator.
 
 Only synthetic task and Kubernetes objects are used. The companion checkout is
@@ -24,7 +28,7 @@ from terminal_bench_anyeval import trial
 from terminal_bench_anyeval.k8s_env import AnyEvalK8sEnvironment, ACTIVE_ENVIRONMENTS
 from terminal_bench_anyeval.iron_proxy import make_config, load_allowlist, source_hash
 
-APP = Path('/private/tmp/claude-501/-Users-jperla-josh/e031f182-dde4-417e-9aee-73c830d18854/scratchpad/tbA-wt')
+APP = Path(os.environ["ANYEVAL_APP_CHECKOUT"]) if os.environ.get("ANYEVAL_APP_CHECKOUT") else None
 PAYLOAD = b'contract artifact\x00\xff\n'
 # Literal independent known bytes enter the transfer in both directions.
 TRAJECTORY = b'{"messages": ["synthetic transcript"]}\n'
@@ -45,7 +49,7 @@ def synthetic_environment(root, role, binding, monkeypatch):
         environment_dir=root / 'absent-prebuilt-context', environment_name='synthetic',
         session_id=root.name + ('__env' if role == 'agent' else '__verifier'),
         trial_paths=TrialPaths(root), binding=binding,
-        task_env_config=EnvironmentConfig(docker_image='example/synthetic:1', cpus=1,
+        task_env_config=EnvironmentConfig(docker_image='example/synthetic:1@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa', cpus=1,
             memory_mb=2048, storage_mb=10240, gpus=0),
         network_policy=NetworkPolicy(network_mode='no-network'))
     env._client = client.ApiClient()
@@ -97,7 +101,7 @@ def synthetic_environment(root, role, binding, monkeypatch):
         wire['metadata'].update(uid=role+'-uid', resourceVersion='3')
         wire['spec']['nodeName'] = 'node-1'
         wire['status'] = {'phase': 'Running', 'podIP': '10.2.0.1', 'containerStatuses': [
-            {'name': 'main', 'image': 'example/synthetic:1', 'imageID': 'example/synthetic@sha256:'+'a'*64,
+            {'name': 'main', 'image': 'example/synthetic:1@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa', 'imageID': 'example/synthetic@sha256:'+'a'*64,
              'containerID': 'containerd://'+role, 'ready': True, 'restartCount': 0, 'state': {'running': {}}}]}
         env._core.read_namespaced_pod.return_value = env._client._ApiClient__deserialize(wire, 'V1Pod')
     env._core.create_namespaced_pod.side_effect = create_pod
@@ -108,14 +112,17 @@ def synthetic_environment(root, role, binding, monkeypatch):
         if 'dmesg' in text:
             return b'[    0.000000] Starting gVisor...\n', b'', 0
         if kwargs.get('data') is not None:
-            with tarfile.open(fileobj=io.BytesIO(kwargs['data'])) as archive:
+            with tarfile.open(fileobj=as_file(kwargs['data'])) as archive:
                 assert archive.extractfile(next(m for m in archive.getmembers() if Path(m.name).name == 'artifact.bin')).read() == b'contract artifact\x00\xff\n'
         return b'', b'', 0
     env._stream = stream
+    upgrade_synthetic_environment(env, monkeypatch)
     return env
 
 
 def test_app_contract_literal_bytes(tmp_path, spec, monkeypatch):
+    if APP is None:
+        pytest.skip("ANYEVAL_APP_CHECKOUT is unset; companion app contract gate skipped")
     assert (APP / 'app/harbor_trial.py').is_file(), 'Companion checkout is required for the contract gate'
     monkeypatch.syspath_prepend(str(APP))
     from app.harbor_trial import run_trial
@@ -212,7 +219,7 @@ def test_app_contract_literal_bytes(tmp_path, spec, monkeypatch):
     assert proxy['active_config_name'] == proxy['finished_config_name']
     assert proxy['config_sha256'] == proxy['finished_proxy_config_sha256']
     transfers = result['verified_artifacts']
-    assert transfers and all(r['source_sha256'] == r['delivered_sha256'] and r['verifier_pod_uid'] == 'verifier-uid' for r in transfers)
+    assert_app_transfer_guard(result, binding, monkeypatch)
     assert any(r['source_sha256'] == hashlib.sha256(b'contract artifact\x00\xff\n').hexdigest() for r in transfers)
     # These are real consumer rejections, not a reimplementation of its checks.
     with pytest.raises(SandboxProvenanceError, match='separate verifier'):
@@ -300,11 +307,44 @@ def test_verifier_health_is_observed_not_inferred_from_reward(tmp_path, monkeypa
             if failure == 'preflight':
                 with pytest.raises(VerifierPreflightError): await verifier.verify()
             else:
-                reward = await verifier.verify()
-                assert reward.rewards == {'reward': 1.0}
+                with pytest.raises(AnyEvalInfrastructureError):
+                    reward = await verifier.verify()
             facts = json.loads((root/'anyeval'/f'{env.pod_name}.json').read_text())
             assert facts['verifier_health']['completed'] is False
-            assert facts['verifier_health']['setup_completed'] is (failure == 'timeout')
+            assert facts['verifier_health']['setup_completed'] is False
         finally:
             await env.stop(delete=True)
     asyncio.run(run())
+
+
+def assert_app_transfer_guard(result, binding, monkeypatch):
+    # Execute the production publication guard directly from its AST. Importing
+    # runner also imports unrelated web-server dependencies (httpx2, etc.).
+    import ast
+    import re
+    from app.sandbox_provenance import validate_harbor_pods, SandboxProvenanceError
+    from app.harbor_trial import _SETUP_FAILURE as app_signature
+    from terminal_bench_anyeval.verifier_health import _SETUP_FAILURE
+    assert app_signature.pattern.encode() == _SETUP_FAILURE.pattern.encode()
+    assert app_signature.flags == _SETUP_FAILURE.flags
+    source = APP / 'app/runner.py'
+    tree = ast.parse(source.read_text())
+    names = {'_REQUIRED_REPRO', '_REQUIRED_INSPECT_SANDBOX', '_SANDBOX_FIELDS_BY_EXECUTION'}
+    nodes = [node for node in tree.body if
+             isinstance(node, ast.FunctionDef) and node.name == '_missing_reproducibility_fields'
+             or isinstance(node, (ast.Assign, ast.AnnAssign)) and
+             any(isinstance(target, ast.Name) and target.id in names
+                 for target in (node.targets if isinstance(node, ast.Assign) else [node.target]))]
+    scope = {'Any': object, 're': re, 'validate_harbor_pods': validate_harbor_pods,
+             'SandboxProvenanceError': SandboxProvenanceError}
+    exec(compile(ast.Module(body=nodes, type_ignores=[]), str(source), 'exec'), scope)
+    guard = scope['_missing_reproducibility_fields']
+    sandbox = {'execution': 'harbor', 'pods': result['pods'], 'binding': binding,
+               'separate_verifier': True, 'verified_artifacts': result['verified_artifacts']}
+    def errors(value):
+        return [item for item in guard({'sandbox': value}) if item.startswith('sandbox.pod_validation:')]
+    assert not errors(sandbox)
+    for field, value in [('delivered_sha256', '0' * 64), ('verifier_pod_uid', 'unrelated-uid')]:
+        bad = deepcopy(sandbox)
+        bad['verified_artifacts'][0][field] = value
+        assert errors(bad)

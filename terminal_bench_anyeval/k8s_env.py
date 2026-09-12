@@ -18,6 +18,8 @@ import re
 import shlex
 import tarfile
 import time
+import tempfile
+import shutil
 import tomllib
 import uuid
 from datetime import datetime, timezone
@@ -29,13 +31,26 @@ from harbor.environments.base import BaseEnvironment, ExecResult
 from harbor.environments.capabilities import (
     EnvironmentCapabilities, EnvironmentResourceCapabilities,
 )
-from harbor.environments.tar_transfer import pack_dir_to_bytes, extract_dir_from_bytes
+from .bounded_io import TransferLimitError, LimitedWriter, as_file, members, inventory
 from harbor.models.task.config import NetworkMode
 from harbor.models.trial.config import ResourceMode
 
 
 COMPOSE_NAMES = ("docker-compose.yaml", "docker-compose.yml", "compose.yaml", "compose.yml")
 ACTIVE_ENVIRONMENTS = set()
+TMUX_SHA256 = "becf4184397f0095862f01a2658bc3ddcfa7b2dee6347f84510934f7f6650ac0"
+PROXY_IMAGE = "ironsh/iron-proxy@sha256:c4628019c24f4cc8d77564a26b7c9cedb00accee6f93d06270e85fb8f9c6a7da"
+
+
+def pinned_image(image):
+    if re.fullmatch(r".+@sha256:[0-9a-f]{64}", image):
+        return image
+    pins = json.loads((Path(__file__).parent / "data/image-digests.json").read_text())
+    digest = pins.get(image)
+    if not isinstance(digest, str) or not re.fullmatch(r"sha256:[0-9a-f]{64}", digest):
+        raise AnyEvalInfrastructureError("Execution image has no approved digest")
+    return image + "@" + digest
+
 
 
 class AnyEvalInfrastructureError(RuntimeError):
@@ -62,12 +77,23 @@ class VerifierPreflightError(RuntimeError):
 
 class AnyEvalK8sEnvironment(BaseEnvironment):
     def __init__(self, *args, namespace="anyeval-sandbox", startup_timeout_sec=600,
-                 transfer_timeout_sec=300, binding=None, **kwargs):
+                 transfer_timeout_sec=300, binding=None, max_transfer_bytes=256 * 1024 * 1024,
+                 max_archive_members=20000, max_output_bytes=16 * 1024 * 1024,
+                 cleanup_timeout_sec=60, **kwargs):
         if namespace != "anyeval-sandbox":
             raise ValueError("AnyEval is restricted to namespace anyeval-sandbox")
         for name in ("cpus", "memory_mb", "storage_mb", "gpus", "tpu"):
             if kwargs.get(f"override_{name}") is not None:
                 raise ValueError("AnyEval requires task.toml resources; overrides are refused")
+        for name, value in (("max_transfer_bytes", max_transfer_bytes),
+                            ("max_archive_members", max_archive_members),
+                            ("max_output_bytes", max_output_bytes)):
+            if type(value) is not int or value <= 0:
+                raise ValueError(name + " must be a positive integer")
+            setattr(self, name, value)
+        self.cleanup_timeout_sec = float(cleanup_timeout_sec)
+        if not 0 < self.cleanup_timeout_sec < float("inf"):
+            raise ValueError("cleanup_timeout_sec must be positive and finite")
         self.binding = dict(binding or {})
         self._artifact_transfer = False
         self._final_captured = False
@@ -217,11 +243,12 @@ class AnyEvalK8sEnvironment(BaseEnvironment):
                         "nodeSelector": ({} if os.environ.get("ANYEVAL_TB_NO_SPOT") == "1" else {"cloud.google.com/gke-spot": "true"}),
                         "restartPolicy": "Never", "automountServiceAccountToken": False,
                         "terminationGracePeriodSeconds": 0,
-                        "containers": [{"name": "main", "image": e.docker_image,
+                        "containers": [{"name": "main", "image": pinned_image(e.docker_image),
                                         "command": ["sleep", "infinity"],
                                         "resources": {"requests": dict(resources), "limits": dict(resources)},
                                         "env": [{"name": k, "value": v} for k, v in self._startup_env().items()],
-                                        "securityContext": {"runAsUser": 0, "allowPrivilegeEscalation": False}}]}}
+                                        "securityContext": {"runAsUser": 0, "privileged": False, "allowPrivilegeEscalation": False,
+                                                            "capabilities": {"drop": ["ALL"], "add": []}}}]}}
         if e.workdir:
             pod["spec"]["containers"][0]["workingDir"] = e.workdir
         policy = {"apiVersion": "networking.k8s.io/v1", "kind": "NetworkPolicy",
@@ -240,6 +267,30 @@ class AnyEvalK8sEnvironment(BaseEnvironment):
             policy["spec"]["egress"] = proxy_egress()
         return pod, policy
 
+    @staticmethod
+    def _validate_proxy_container(spec, cm_name):
+        containers = getattr(spec, "containers", None) or []
+        if len(containers) != 1:
+            raise AnyEvalInfrastructureError("Proxy must have one serving container")
+        container = containers[0]
+        mounts = getattr(container, "volume_mounts", None) or []
+        volumes = getattr(spec, "volumes", None) or []
+        if (container.name != "iron-proxy" or container.image != PROXY_IMAGE
+                or getattr(container, "command", None)
+                or container.args != ["-config", "/etc/iron-proxy/proxy.yaml"]
+                or len(mounts) != 1 or mounts[0].name != "config"
+                or mounts[0].mount_path != "/etc/iron-proxy"
+                or mounts[0].read_only is not True
+                or getattr(mounts[0], "sub_path", None)
+                or getattr(mounts[0], "sub_path_expr", None)):
+            raise AnyEvalInfrastructureError("Proxy serving container is not bound to approved configuration")
+        configs = [v for v in volumes if v.name == "config"]
+        if (len(configs) != 1 or not configs[0].config_map
+                or configs[0].config_map.name != cm_name
+                or getattr(configs[0].config_map, "items", None)
+                or getattr(configs[0].config_map, "optional", False)):
+            raise AnyEvalInfrastructureError("Proxy config mount does not expose the recorded ConfigMap")
+
     async def _prepare_proxy(self):
         if not self.egress_proxy_enabled:
             return
@@ -255,6 +306,7 @@ class AnyEvalK8sEnvironment(BaseEnvironment):
         if len(mounts) != 1:
             raise RuntimeError("Deployment must mount exactly one config ConfigMap")
         cm_name = mounts[0]
+        self._validate_proxy_container(deployment.spec.template.spec, cm_name)
         cm = await self._call(self._core.read_namespaced_config_map, cm_name, self.namespace,
                              _request_timeout=20)
         proxies = await self._call(self._core.list_namespaced_pod, self.namespace,
@@ -301,6 +353,7 @@ class AnyEvalK8sEnvironment(BaseEnvironment):
                 (deployment.spec.template.metadata.annotations or {}).get("anyeval.io/config-sha256") != digest):
             raise RuntimeError("Deployment does not reference this config revision")
         for endpoint in ready:
+            self._validate_proxy_container(endpoint.spec, cm_name)
             if (endpoint.metadata.annotations or {}).get("anyeval.io/config-sha256") != digest:
                 raise RuntimeError("Proxy Pod does not reference this config revision")
             if cm.immutable is not True or not any(
@@ -318,9 +371,9 @@ class AnyEvalK8sEnvironment(BaseEnvironment):
         ready_uids = sorted(p.metadata.uid for p in ready)
         if endpoint_uids != ready_uids or len(ready) != 1:
             raise AnyEvalInfrastructureError("Proxy endpoints must identify exactly one captured ready Pod")
-        image_id = proxy.status.container_statuses[0].image_id
+        image_id = next((c.image_id for c in proxy.status.container_statuses if c.name == "iron-proxy"), None)
         match = re.search(r"sha256:[0-9a-f]{64}$", image_id or "")
-        if match is None:
+        if match is None or match.group(0) != PROXY_IMAGE.rsplit("@", 1)[1]:
             raise AnyEvalInfrastructureError("Proxy image digest was not resolved")
         policies = await self._call(self._network.list_namespaced_network_policy,
                                     self.namespace, _request_timeout=20)
@@ -332,7 +385,13 @@ class AnyEvalK8sEnvironment(BaseEnvironment):
                                        "resource_version": policy.metadata.resource_version,
                                        "spec": actual["spec"], "observed_from": "kubernetes_api",
                                        "source": "proxy_policy", "pod_uid": proxy.metadata.uid})
-        self._proxy_facts = {"image_digest": match.group(0), "service_uid": service.metadata.uid,
+        serving = proxy.spec.containers[0]
+        self._proxy_facts = {"serving_container": {
+                             "name": serving.name, "image": serving.image,
+                             "args": list(serving.args), "configmap": cm_name,
+                             "mount_path": serving.volume_mounts[0].mount_path,
+                             "read_only": serving.volume_mounts[0].read_only},
+                             "image_digest": match.group(0), "service_uid": service.metadata.uid,
                              "endpoint_uids": endpoint_uids, "labels": dict(proxy.metadata.labels or {}),
                              "mode": "warn" if allow[0].get("warn") else "enforce",
                              "active_config_name": cm_name, "active_config_sha256": source_digest,
@@ -400,11 +459,28 @@ class AnyEvalK8sEnvironment(BaseEnvironment):
         selected = sorted(p.metadata.uid for p in policies.items if self._selects(
             self._client.sanitize_for_serialization(p)["spec"]["podSelector"], pod.metadata.labels or {}))
         self._save_facts({"finished_selecting_policy_uids" if final else "selecting_policy_uids": selected})
-        if selected != [policy.metadata.uid]:
-            raise AnyEvalInfrastructureError("Additional or missing selecting NetworkPolicies")
+        additional = []
+        if policy.metadata.uid not in selected:
+            raise AnyEvalInfrastructureError("Missing selecting package NetworkPolicy")
+        for other in policies.items:
+            if other.metadata.uid not in selected or other.metadata.uid == policy.metadata.uid:
+                continue
+            other_spec = self._client.sanitize_for_serialization(other)["spec"]
+            if any(other_spec.get(direction) not in (None, []) for direction in ("ingress", "egress")):
+                raise AnyEvalInfrastructureError("Additional selecting NetworkPolicy adds allows")
+            if not all(isinstance(value, str) and value for value in
+                       (other.metadata.name, other.metadata.uid, other.metadata.resource_version)):
+                raise AnyEvalInfrastructureError("Additional selecting policy identity is incomplete")
+            additional.append({"name": other.metadata.name, "uid": other.metadata.uid,
+                               "resource_version": other.metadata.resource_version,
+                               "effect": "adds no allows", "spec": other_spec,
+                               "observed_from": "kubernetes_api", "pod_uid": pod.metadata.uid})
+        additional.sort(key=lambda p: p["uid"])
+        self._save_facts({"finished_additional_network_policies" if final else
+                          "additional_network_policies": additional})
         if not self._selects(spec["podSelector"], pod.metadata.labels or {}):
             raise AnyEvalInfrastructureError("Policy does not select the live pod")
-        return {"selecting_policy_uids": selected, "network_policy": {
+        return {"additional_network_policies": additional, "selecting_policy_uids": selected, "network_policy": {
             "name": policy.metadata.name, "uid": policy.metadata.uid,
             "resource_version": policy.metadata.resource_version,
             "observed_from": "kubernetes_api", "source": "package_policy",
@@ -434,6 +510,7 @@ class AnyEvalK8sEnvironment(BaseEnvironment):
                 or final["finished_labels"] != initial["labels"]
                 or any((pod.metadata.annotations or {}).get("anyeval.io/" + k.replace("_", "-")) != str(v)
                        for k, v in self.binding.items())
+                or observed["additional_network_policies"] != initial.get("additional_network_policies", [])
                 or observed["selecting_policy_uids"] != initial["selecting_policy_uids"]
                 or policy["finished_resource_version"] != policy["resource_version"]):
             raise AnyEvalInfrastructureError("Pod or NetworkPolicy changed during the attempt")
@@ -450,7 +527,7 @@ class AnyEvalK8sEnvironment(BaseEnvironment):
             self._save_facts({"egress_proxy": active})
             for key in ("pod_uid", "image_digest", "service_uid", "endpoint_uids", "labels",
                         "active_config_name", "active_config_sha256", "config_sha256", "mode",
-                        "configmap_uid", "network_policies"):
+                        "configmap_uid", "network_policies", "serving_container"):
                 if active[key] != final_proxy[key]:
                     raise AnyEvalInfrastructureError("Proxy identity/configuration changed during the attempt")
             active["network_policies"] = [dict(p, finished_resource_version=p["resource_version"])
@@ -490,6 +567,38 @@ class AnyEvalK8sEnvironment(BaseEnvironment):
                 facts[key + "_error"] = type(exc).__name__
         self._save_facts(facts)
 
+    def _validate_admitted_pod(self, pod):
+        spec = pod.spec
+        wanted = self._manifests()[0]["spec"]
+        if (spec.runtime_class_name != "gvisor"
+                or any(getattr(spec, k, False) not in (False, None)
+                       for k in ("host_network", "host_pid", "host_ipc"))
+                or spec.automount_service_account_token is not False
+                or pod.metadata.namespace != self.namespace
+                or pod.metadata.name != self.pod_name
+                or any((pod.metadata.labels or {}).get(k) != v for k, v in self._labels.items())
+                or any(getattr(v, "host_path", None) is not None for v in spec.volumes or [])
+                or getattr(spec, "init_containers", None)
+                or getattr(spec, "ephemeral_containers", None)
+                or len(spec.containers) != 1):
+            raise AnyEvalInfrastructureError("Pod admission violated security invariants")
+        container = spec.containers[0]
+        security = container.security_context
+        caps = getattr(security, "capabilities", None)
+        requested = wanted["containers"][0]
+        if (container.name != "main" or container.image != requested["image"]
+                or security is None or security.privileged not in (False, None)
+                or security.allow_privilege_escalation is not False
+                or caps is None
+                or sorted(caps.add or []) != requested["securityContext"]["capabilities"]["add"]
+                or sorted(caps.drop or []) != requested["securityContext"]["capabilities"]["drop"]):
+            raise AnyEvalInfrastructureError("Container admission violated security invariants")
+        statuses = pod.status.container_statuses or []
+        main = [status for status in statuses if status.name == "main"]
+        expected_digest = requested["image"].rsplit("@", 1)[1]
+        if len(main) != 1 or not (main[0].image_id or "").endswith("@" + expected_digest):
+            raise AnyEvalInfrastructureError("Observed execution image digest differs from approved pin")
+
     async def _wait_running(self):
         deadline = time.monotonic() + self.startup_timeout_sec
         last_phase = None
@@ -499,6 +608,7 @@ class AnyEvalK8sEnvironment(BaseEnvironment):
             last_phase = pod.status.phase
             statuses = pod.status.container_statuses or []
             if last_phase == "Running" and statuses and all(s.state.running for s in statuses):
+                self._validate_admitted_pod(pod)
                 facts = {"pod": self.pod_name, "namespace": self.namespace,
                          "uid": getattr(pod.metadata, "uid", None),
                          "created_uid": pod.metadata.uid,
@@ -617,17 +727,47 @@ class AnyEvalK8sEnvironment(BaseEnvironment):
         binary = Path(source)
         if not binary.is_file():
             raise RuntimeError(f"ANYEVAL_TB_TMUX_STATIC does not name a file: {source}")
-        digest = hashlib.sha256(binary.read_bytes()).hexdigest()
+        with binary.open("rb") as stream:
+            data = stream.read(self.max_transfer_bytes + 1)
+        if len(data) > self.max_transfer_bytes:
+            raise TransferLimitError("Static tmux exceeds transfer byte limit")
+        digest = hashlib.sha256(data).hexdigest()
+        if digest != TMUX_SHA256:
+            raise AnyEvalInfrastructureError("Static tmux SHA256 differs from approved pin")
         probe = await self.exec("command -v tmux >/dev/null 2>&1 && tmux -V", user="root")
         if probe.return_code == 0:
             self._save_facts({"pod": self.pod_name, "tmux": "present in image", "tmux_version": (probe.stdout or "").strip()})
             return
-        await self.upload_file(binary, PurePosixPath("/usr/local/bin/tmux"))
+        with tempfile.TemporaryDirectory() as directory:
+            checked = Path(directory) / "tmux"
+            checked.write_bytes(data)
+            await self.upload_file(checked, PurePosixPath("/usr/local/bin/tmux"))
         result = await self.exec("chmod 0755 /usr/local/bin/tmux && tmux -V", user="root")
         if result.return_code != 0:
             raise RuntimeError(f"static tmux does not run in this image: {result.stderr!r}")
         self._save_facts({"pod": self.pod_name, "tmux": "static binary uploaded by AnyEval",
                           "tmux_sha256": digest, "tmux_version": (result.stdout or "").strip()})
+
+    async def _wait_terminated(self):
+        deadline = time.monotonic() + self.cleanup_timeout_sec
+        terminal_since = None
+        while time.monotonic() < deadline:
+            try:
+                pod = await self._call(self._core.read_namespaced_pod, self.pod_name,
+                                       self.namespace, _request_timeout=20)
+            except Exception as exc:
+                if getattr(exc, "status", None) == 404:
+                    return
+                raise
+            if pod.status.phase in ("Succeeded", "Failed"):
+                terminal_since = terminal_since or time.monotonic()
+                grace = max(1, pod.spec.termination_grace_period_seconds or 0)
+                if time.monotonic() - terminal_since >= grace:
+                    return
+            else:
+                terminal_since = None
+            await asyncio.sleep(1)
+        raise AnyEvalInfrastructureError("Pod termination was not confirmed; isolation retained")
 
     async def stop(self, delete=True):
         """Always delete owned resources, including when Harbor passes delete=False."""
@@ -651,10 +791,15 @@ class AnyEvalK8sEnvironment(BaseEnvironment):
             ):
                 if not getattr(self, attempted):
                     continue
+                if name == "policy" and self._pod_attempted:
+                    failures.append("policy retained: pod termination unconfirmed")
+                    continue
                 for attempt in range(3):
                     try:
                         kw = {"grace_period_seconds": 0} if name == "pod" else {}
                         await self._call(api, self.pod_name, self.namespace, _request_timeout=20, **kw)
+                        if name == "pod":
+                            await self._wait_terminated()
                         setattr(self, attempted, False)
                         break
                     except Exception as exc:
@@ -706,7 +851,7 @@ class AnyEvalK8sEnvironment(BaseEnvironment):
         except Exception as exc:
             self._save_facts({"proxy_log_error": type(exc).__name__})
 
-    async def _stream(self, command, *, data=None, timeout_sec=None, callback=None):
+    async def _stream(self, command, *, data=None, timeout_sec=None, callback=None, output=None):
         from kubernetes import client
         from kubernetes.stream import stream
         from websocket import WebSocketConnectionClosedException
@@ -732,22 +877,38 @@ class AnyEvalK8sEnvironment(BaseEnvironment):
                 # cancellation arrives during the blocking HTTP upgrade.
                 response = await opening
                 raise
-            offset = 0
+            if data is not None:
+                data = as_file(data)
+                data.seek(0)
+            sending = data is not None
+            received = 0
+            def append_output(index, buffer, chunk):
+                nonlocal received
+                received += len(chunk)
+                limit = self.max_transfer_bytes if output is not None else self.max_output_bytes
+                if received > limit or (index == 1 and len(buffer) + len(chunk) > self.max_output_bytes):
+                    raise TransferLimitError("Remote output byte limit exceeded")
+                if index == 0 and output is not None:
+                    output.write(chunk)
+                else:
+                    buffer.extend(chunk)
             last_ping = time.monotonic()
             while response.is_open():
                 if time.monotonic() >= deadline:
                     return bytes(out), bytes(err) + b"\nKubernetes exec timed out", 124
-                if data is not None and offset < len(data):
-                    chunk = data[offset:offset + 65536]
-                    await self._call(response.write_stdin, chunk)
-                    offset += len(chunk)
-                await self._call(response.update, timeout=0.1 if data is not None and offset < len(data) else 1)
+                if sending:
+                    chunk = data.read(65536)
+                    if chunk:
+                        await self._call(response.write_stdin, chunk)
+                    else:
+                        sending = False
+                await self._call(response.update, timeout=0.1 if sending else 1)
                 for index, (reader, buffer) in enumerate(((response.read_stdout, out), (response.read_stderr, err))):
                     chunk = reader(timeout=0)
                     if chunk:
                         if not isinstance(chunk, bytes):
                             raise RuntimeError("Kubernetes stream did not preserve binary output")
-                        buffer.extend(chunk)
+                        append_output(index, buffer, chunk)
                         if callback:
                             text = decoders[index].decode(chunk)
                             if text:
@@ -764,7 +925,7 @@ class AnyEvalK8sEnvironment(BaseEnvironment):
                 if chunk:
                     if not isinstance(chunk, bytes):
                         raise RuntimeError("Kubernetes stream did not preserve binary output")
-                    buffer.extend(chunk)
+                    append_output(index, buffer, chunk)
                     if callback:
                         text = decoders[index].decode(chunk)
                         if text:
@@ -810,6 +971,9 @@ class AnyEvalK8sEnvironment(BaseEnvironment):
         # Initial attempt plus at most three retries; never used by arbitrary exec.
         for attempt in range(4):
             try:
+                if kwargs.get("output") is not None:
+                    kwargs["output"].seek(0)
+                    kwargs["output"].truncate()
                 return await self._stream(command, **kwargs)
             except ExecStreamClosed:
                 if attempt == 3:
@@ -827,7 +991,8 @@ class AnyEvalK8sEnvironment(BaseEnvironment):
         if guard["pending_uploads"]:
             raise VerifierPreflightError("tests/ upload did not complete")
         _, _, code = await self._transfer_stream(
-            ["sh", "-c", "test -d /tests && test -f " + shlex.quote(guard["script"])],
+            ["sh", "-c", "test -d /tests && test -f " + shlex.quote(guard["script"])
+             + " && test -x " + shlex.quote(guard["script"])],
             timeout_sec=self.transfer_timeout_sec)
         if code:
             raise VerifierPreflightError("tests/ or verifier entrypoint is missing")
@@ -866,13 +1031,19 @@ class AnyEvalK8sEnvironment(BaseEnvironment):
             ["sh", "-c", script], timeout_sec=timeout_sec + 10 if timeout_sec else None,
             callback=self._output_callback())
         if self._verifier_guard and command == self._verifier_guard.get("command"):
-            self._verifier_guard["execution_completed"] = code not in (124, 137, 143)
+            healthy = 0 <= code < 124
+            self._verifier_guard["execution_completed"] = healthy
+            if not healthy:
+                self._verifier_guard["checked"] = False
+                self._save_facts({"verifier_health": {"setup_completed": False, "completed": False}})
+                raise AnyEvalInfrastructureError("Verifier launch or termination failed")
         return ExecResult(stdout=stdout.decode("utf-8", "replace"),
                           stderr=stderr.decode("utf-8", "replace"), return_code=code)
 
     async def _upload(self, data, target_dir):
         # Tar's end-of-archive blocks terminate extraction without stdin EOF
         # (works with the v4 exec protocol as in Harbor GKE).
+        inventory(data, self.max_transfer_bytes, self.max_archive_members)
         command = f"mkdir -p {shlex.quote(target_dir)} && tar xf - -C {shlex.quote(target_dir)}"
         _, _, code = await self._transfer_stream(["sh", "-c", command], data=data,
                                         timeout_sec=self.transfer_timeout_sec)
@@ -886,29 +1057,11 @@ class AnyEvalK8sEnvironment(BaseEnvironment):
         bytes; directory/link records use a canonical inventory of their semantics.
         Neither bytes nor path contents are logged.
         """
-        def inventory(raw):
-            entries = {}
-            with tarfile.open(fileobj=io.BytesIO(raw), mode="r:*") as archive:
-                for member in archive.getmembers():
-                    name = str(PurePosixPath(member.name))
-                    if name.startswith("/") or ".." in PurePosixPath(name).parts:
-                        raise AnyEvalInfrastructureError("Unsafe artifact archive path")
-                    if member.isfile() or member.islnk():
-                        stream = archive.extractfile(member)
-                        entries[name] = hashlib.sha256(stream.read()).hexdigest()
-                    elif member.isdir():
-                        entries[name] = hashlib.sha256(b"directory").hexdigest()
-                    elif member.issym():
-                        entries[name] = hashlib.sha256(b"symlink\0" + member.linkname.encode()).hexdigest()
-                    else:
-                        raise AnyEvalInfrastructureError("Unsupported artifact type")
-            # Root directory headers need not be present on both sides.
-            entries.pop(".", None)
-            return entries
-        source = inventory(data)
+        source = inventory(data, self.max_transfer_bytes, self.max_archive_members)
         command = (["tar", "cf", "-", "-C", target_dir, "--", file_name] if file_name
                    else ["tar", "cf", "-", "-C", target_dir, "."])
-        delivered = inventory(await self._download(command))
+        with as_file(await self._download(command)) as downloaded:
+            delivered = inventory(downloaded, self.max_transfer_bytes, self.max_archive_members)
         pod = await self._call(self._core.read_namespaced_pod, self.pod_name,
                                self.namespace, _request_timeout=20)
         path = self.trial_paths.trial_dir / "anyeval" / f"{self.pod_name}.json"
@@ -926,65 +1079,100 @@ class AnyEvalK8sEnvironment(BaseEnvironment):
         if source != delivered or pod.metadata.uid != facts["created_uid"]:
             raise AnyEvalInfrastructureError("Verifier artifact delivery mismatch")
 
+    def _pack(self, source, archive_name, buffer):
+        count = 0
+        expanded = 0
+        def check(member):
+            nonlocal count, expanded
+            count += 1
+            expanded += member.size
+            if count > self.max_archive_members or expanded > self.max_transfer_bytes:
+                raise TransferLimitError("Archive expanded byte/member limit exceeded")
+            return member
+        with tarfile.open(fileobj=LimitedWriter(buffer, self.max_transfer_bytes), mode="w|") as archive:
+            archive.add(Path(source), arcname=archive_name, filter=check)
+        buffer.seek(0)
+
     async def upload_file(self, source_path, target_path):
         target = PurePosixPath(target_path)
-        buffer = io.BytesIO()
-        with tarfile.open(fileobj=buffer, mode="w") as archive:
-            archive.add(Path(source_path), arcname=target.name)
-        data = buffer.getvalue()
-        await self._upload(data, str(target.parent))
-        if self._artifact_transfer:
-            await self._record_artifact_delivery(data, str(target.parent), file_name=target.name)
+        with tempfile.TemporaryFile() as data:
+            self._pack(source_path, target.name, data)
+            await self._upload(data, str(target.parent))
+            if self._artifact_transfer:
+                await self._record_artifact_delivery(data, str(target.parent), file_name=target.name)
 
     async def upload_dir(self, source_dir, target_dir):
-        data = pack_dir_to_bytes(source_dir).getvalue()
-        await self._upload(data, str(target_dir))
-        if self._artifact_transfer:
-            await self._record_artifact_delivery(data, str(target_dir))
+        with tempfile.TemporaryFile() as data:
+            self._pack(source_dir, ".", data)
+            await self._upload(data, str(target_dir))
+            if self._artifact_transfer:
+                await self._record_artifact_delivery(data, str(target_dir))
         if self._verifier_guard is not None and str(target_dir).rstrip("/") == "/tests":
             self._verifier_guard["pending_uploads"].discard(Path(source_dir))
 
     async def _download(self, command):
-        data, _, code = await self._transfer_stream(command, timeout_sec=self.transfer_timeout_sec)
-        if code:
-            raise RuntimeError(f"Tar download failed (exit {code})")
-        if not data:
-            raise RuntimeError("Tar download returned no archive")
-        return data
+        data = tempfile.TemporaryFile()
+        try:
+            _, _, code = await self._transfer_stream(command, output=data, timeout_sec=self.transfer_timeout_sec)
+            if code:
+                raise AnyEvalInfrastructureError(f"Tar download failed (exit {code})")
+            if not data.tell():
+                raise AnyEvalInfrastructureError("Tar download returned no archive")
+            inventory(data, self.max_transfer_bytes, self.max_archive_members)
+            data.seek(0)
+            return data
+        except BaseException:
+            data.close()
+            raise
 
     async def download_file(self, source_path, target_path):
         source, target = PurePosixPath(source_path), Path(target_path)
-        data = await self._download(["tar", "chf", "-", "-C", str(source.parent), "--", source.name])
-        target.parent.mkdir(parents=True, exist_ok=True)
-        with tarfile.open(fileobj=io.BytesIO(data), mode="r:*") as archive:
-            member = archive.getmember(source.name)
-            if not member.isfile():
-                raise RuntimeError("download_file requires a regular file")
-            content = archive.extractfile(member)
-            if content is None:
-                raise RuntimeError("File missing in tar download")
-            # Do not extract archive-controlled paths or follow an old local link.
-            if target.is_symlink():
-                raise RuntimeError("Refusing to overwrite a local symlink")
-            target.write_bytes(content.read())
-            target.chmod(member.mode & 0o777)
+        with as_file(await self._download(["tar", "chf", "-", "-C", str(source.parent), "--", source.name])) as data:
+            inventory(data, self.max_transfer_bytes, self.max_archive_members)
+            target.parent.mkdir(parents=True, exist_ok=True)
+            with tarfile.open(fileobj=data, mode="r:") as archive:
+                member = archive.getmember(source.name)
+                if not member.isfile():
+                    raise AnyEvalInfrastructureError("download_file requires a regular file")
+                if target.is_symlink():
+                    raise AnyEvalInfrastructureError("Refusing to overwrite a local symlink")
+                with archive.extractfile(member) as content, target.open("wb") as destination:
+                    shutil.copyfileobj(content, destination, 65536)
+                target.chmod(member.mode & 0o777)
 
-    async def download_dir_filtered(self, **kwargs):
-        # Harbor's filtered transfer uses read-only listing/archive commands via
-        # exec. The entire transfer is idempotent; callers' arbitrary exec is not.
-        for attempt in range(4):
-            try:
-                return await super().download_dir_filtered(**kwargs)
-            except ExecStreamClosed:
-                if attempt == 3:
-                    raise
-                await asyncio.sleep(2 ** attempt)
-                if await self._pod_phase() != "Running":
-                    raise await self._stream_closed_error()
+    async def download_dir_filtered(self, *, source_dir, target_dir, include=None,
+                                    exclude=None, protect=None):
+        # Bound the entire source archive before selecting files. Harbor's default
+        # implementation extracts an inner gzip tar without expanded/member caps.
+        from harbor.utils.path_filter import filter_paths_by_patterns
+        target = Path(target_dir)
+        target.mkdir(parents=True, exist_ok=True)
+        with as_file(await self._download(["tar", "cf", "-", "-C", str(source_dir), "."])) as data:
+            inventory(data, self.max_transfer_bytes, self.max_archive_members)
+            with tarfile.open(fileobj=data, mode="r:") as archive:
+                regular = {str(PurePosixPath(m.name)): m
+                           for m in members(archive, self.max_transfer_bytes, self.max_archive_members)
+                           if m.isfile() or m.islnk()}
+                selected = set(filter_paths_by_patterns(list(regular), include=include, exclude=exclude))
+                selected.update(set(protect or []) & regular.keys())
+                for name in sorted(selected):
+                    destination = target / name
+                    if destination.is_symlink() or not destination.resolve().is_relative_to(target.resolve()):
+                        raise AnyEvalInfrastructureError("Unsafe filtered download destination")
+                    destination.parent.mkdir(parents=True, exist_ok=True)
+                    with archive.extractfile(regular[name]) as content, destination.open("wb") as stream:
+                        shutil.copyfileobj(content, stream, 65536)
+                    destination.chmod(regular[name].mode & 0o777)
+
+    async def download_dir_with_exclusions(self, source_dir, target_dir, exclude):
+        await self.download_dir_filtered(source_dir=source_dir, target_dir=target_dir, exclude=exclude)
 
     async def download_dir(self, source_dir, target_dir):
-        data = await self._download(["tar", "cf", "-", "-C", str(source_dir), "."])
-        extract_dir_from_bytes(data, target_dir)
+        with as_file(await self._download(["tar", "cf", "-", "-C", str(source_dir), "."])) as data:
+            inventory(data, self.max_transfer_bytes, self.max_archive_members)
+            with tarfile.open(fileobj=data, mode="r:") as archive:
+                for member in members(archive, self.max_transfer_bytes, self.max_archive_members):
+                    archive.extract(member, target_dir, filter="data")
 
 
 # Harbor has no before-verifier/download-recovery hook in 0.22. Scope the wrapper

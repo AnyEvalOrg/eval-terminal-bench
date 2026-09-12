@@ -106,10 +106,22 @@ read again before deletion and must equal the original revision.
 `egress_to_proxy_only` records the checked agent proxy profile. Both policyTypes
 must be present (`Ingress`, `Egress`), ingress is empty, the agent permits only
 the same-namespace proxy pod selector on TCP 8080 and TCP/UDP 53, and a separate
-verifier has empty egress. All selecting policies are enumerated: extra selectors
-fail closed because Kubernetes policy allows are additive. Policy drift, pod
+verifier has empty egress. All selecting policies are enumerated. Additional selecting policies are permitted
+only when both `spec.ingress` and `spec.egress` are absent, null, or empty arrays:
+they add no allows in either direction. A nonempty rule list (including `[{}]`)
+is refused, regardless of policyTypes. This permits the namespace-wide
+`deny-all-egress` policy (`podSelector: {}`). The adapter records each extra policy
+in `additional_network_policies` with `name`, `uid`, `resource_version`, live
+`spec`, `observed_from: kubernetes_api`, `pod_uid`, and `effect: "adds no allows"`.
+`finished_additional_network_policies` must equal the initial list (sorted by UID).
+The app validator must independently check these rule lists and metadata,
+require the selecting UID lists to equal the package policy UID plus all recorded
+extra UIDs, and require initial/final evidence equality. Policy drift, pod
 replacement/restarts, missing final capture, or changed labels fail the attempt
-while cleanup still deletes the owned pod and policy.
+while cleanup deletes the owned pod first. Its policy remains until a live read
+confirms 404 or a terminal phase has persisted for at least the pod's termination
+grace period (minimum one second). Failed deletion or unconfirmed termination
+retains isolation and reports infrastructure failure.
 
 ## Proxy record
 
@@ -117,6 +129,7 @@ while cleanup still deletes the owned pod and policy.
 | --- | --- |
 | `pod`, `pod_uid`, `finished_pod_uid` | Initial name/UID and final UID of the captured ready proxy |
 | `image_digest` | Live resolved proxy image digest |
+| `serving_container` | Checked live container name, pinned image, args, ConfigMap name, mount path, and read-only flag; rechecked at final capture |
 | `labels` | All live proxy labels |
 | `service_ip`, `service_uid` | Live iron-proxy Service ClusterIP and UID |
 | `endpoint_uids` | All ready endpoint Pod targetRef UIDs read from the Kubernetes Endpoints API |
@@ -135,7 +148,12 @@ Canonical JSON uses sorted keys and comma/colon separators, UTF-8, then SHA-256
 the application's allowlist-hash convention; the separate proxy configuration
 hashes identify literal config bytes. Both are recorded, never conflated.
 
-The adapter verifies immutable ConfigMap mounting, matching Deployment/Pod
+The adapter verifies the sole serving container in both Deployment and ready Pod:
+`iron-proxy`, the package-pinned image digest, no command override, exact arguments
+`[-config, /etc/iron-proxy/proxy.yaml]`, and a read-only `config` volume mounted at
+`/etc/iron-proxy` without subPath or alternate item mappings. That volume must
+reference the recorded immutable ConfigMap. The live serving imageID must match
+the approved digest. It also verifies matching Deployment/Pod
 annotations, approved allowlist contents, enforce mode, Service selector and all
 ready endpoints. This release requires exactly one ready proxy Pod/endpoint to
 bind the singular proxy record; a rollout or additional endpoint fails closed.
@@ -148,8 +166,8 @@ between observations; this is evidence collection, not independent attestation.
 `setup_completed` becomes true only after Running, successful test staging (or
 prebuilt-image ownership), and an executable-entrypoint existence preflight.
 `completed` requires observing the exact Harbor verifier command complete and
-successful verifier output download/reward parsing. Official termination exit
-codes do not set completion. Known setup-failure signatures in verifier stdout
+successful verifier output download/reward parsing. Exit 124–127, negative signal exits, and exits 128 or higher clear both health
+flags and are infrastructure failures. Preflight uses `test -x`. Known setup-failure signatures in verifier stdout
 clear both flags, even if a reward file exists. An exception does not set health.
 A binary reward alone never establishes either flag.
 
@@ -173,6 +191,33 @@ hashes bound to a recorded verifier pod. A task with no actual transfer remains
 ineligible for that publication gate; no fictitious empty transfer is invented.
 
 The cross-repo contract gate imports the companion app's `app.harbor_trial` and
-`app.sandbox_provenance` through its read-only worktree path. Synthetic API
+`app.sandbox_provenance` through `ANYEVAL_APP_CHECKOUT`. When unset, the cross-repo gate skips with an
+explicit message; CI must supply its reviewed companion checkout. Synthetic API
 objects exercise real adapter capture, the real child CLI writes result bytes,
 and the actual parent parser reads those bytes before provenance validation.
+
+## Execution and transfer bounds
+
+The adapter requests and checks no hostNetwork/hostPID/hostIPC, no hostPath,
+no additional init/ephemeral containers, no privileged execution, explicit
+`allowPrivilegeEscalation: false`, `automountServiceAccountToken: false`, the
+requested capability sets, gvisor runtime, and expected identity labels.
+2.1 images use `data/image-digests.json`, derived from the two recorded 2.1 sweeps;
+4.0 task metadata already uses digests. Created image references and observed
+main-container imageIDs must match the approved digest. The static tmux upload
+must match the package's `TMUX_SHA256`; the uploaded bytes are those hashed.
+
+Environment kwargs `max_transfer_bytes` (default 268435456),
+`max_archive_members` (20000), and `max_output_bytes` (16777216) must be positive
+integers. Tar archives use bounded temporary files, bounded member inventories,
+and incremental file hashing. Raw and expanded bytes are limited; remote exec
+output is bounded before accumulation. Filtered downloads bound the entire source
+archive before applying include/exclude/protect rules, so excluded files also
+count toward the transfer limit. `TransferLimitError` is infrastructure.
+
+JSON NaN/Infinity constants are rejected at parsing. Echoed identity fields are
+validated independently before use; invalid bindings become null. Atomic result
+serialization sanitizes non-finite or unsupported values before `allow_nan=False`.
+The package's `verifier_health._SETUP_FAILURE` is the sole local definition; the
+cross-repo gate compares the app's pattern bytes and flags with it and exercises
+the app's actual publication guard for artifact hash and verifier UID mismatches.

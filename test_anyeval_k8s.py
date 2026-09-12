@@ -25,7 +25,7 @@ class ContractTests(unittest.IsolatedAsyncioTestCase):
         self.root = Path(self.tmp.name)
         self.context = self.root / "environment"
         self.context.mkdir()
-        self.config = EnvironmentConfig(docker_image="example/test:unchanged", cpus=1,
+        self.config = EnvironmentConfig(docker_image="example/test:unchanged@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", cpus=1,
                                         memory_mb=2048, storage_mb=10240, gpus=0)
 
     def env(self, **kwargs):
@@ -89,12 +89,12 @@ class ContractTests(unittest.IsolatedAsyncioTestCase):
         # Mirror Trial._separate_verifier_env: same runtime import; distinct
         # session and verifier config/context. No private verifier reimplementation.
         runtime = RuntimeConfig(import_path="anyeval_k8s:AnyEvalK8sEnvironment")
-        verifier_config = self.config.model_copy(update={"docker_image": "example/verifier:digest-tag"})
+        verifier_config = self.config.model_copy(update={"docker_image": "example/verifier:digest-tag@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"})
         env = EnvironmentFactory.create_environment_from_config(
             config=runtime, environment_dir=self.context, environment_name="test",
             session_id="test__abc__verifier__grade", trial_paths=TrialPaths(self.root / "test__abc"),
             task_env_config=verifier_config, network_policy=NetworkPolicy(network_mode="no-network"))
-        self.assertEqual(env._manifests()[0]["spec"]["containers"][0]["image"], "example/verifier:digest-tag")
+        self.assertEqual(env._manifests()[0]["spec"]["containers"][0]["image"], "example/verifier:digest-tag@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")
         self.assertNotEqual(env.pod_name, self.env().pod_name)
 
     async def local_stream(self, command, *, data=None, timeout_sec=None, callback=None):

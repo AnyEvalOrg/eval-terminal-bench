@@ -4,7 +4,7 @@ The stock verifier still stages and executes tests exactly once. Recovery resume
 at download/reward parsing, never at verify(). Separate verifier images own /tests.
 """
 import asyncio
-import re
+from .verifier_health import _SETUP_FAILURE
 from functools import wraps
 
 from harbor.models.trial.paths import EnvironmentPaths
@@ -70,10 +70,13 @@ def install_verifier_hook(environment_class):
                 result = await recover_download(self)
             guard = environment._verifier_guard
             text = self.trial_paths.test_stdout_path.read_text(errors="replace")
-            unhealthy = re.search(r"Temporary failure resolving|Could not resolve host|uvx: (?:command )?not found|curl: (?:command )?not found|No module named pytest", text, re.I)
+            unhealthy = _SETUP_FAILURE.search(text)
             environment._save_facts({"verifier_health": {
                 "setup_completed": guard["checked"] and not bool(unhealthy),
                 "completed": guard["execution_completed"] and not bool(unhealthy)}})
+            if not (guard["checked"] and guard["execution_completed"] and not unhealthy):
+                from .k8s_env import AnyEvalInfrastructureError
+                raise AnyEvalInfrastructureError("Verifier health was not proved; reward refused")
             return result
         finally:
             environment._verifier_guard = previous

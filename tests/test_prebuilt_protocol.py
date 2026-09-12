@@ -25,7 +25,7 @@ def make_environment(tmp_path, monkeypatch):
             session_id='trial__env' if role == 'agent' else 'trial__verifier__grade',
             trial_paths=TrialPaths(tmp_path / 'trial'),
             task_env_config=kwargs.pop('task_env_config', EnvironmentConfig(
-                docker_image='example/synthetic:1', cpus=1, memory_mb=2048, storage_mb=10240)),
+                docker_image='example/synthetic:1@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa', cpus=1, memory_mb=2048, storage_mb=10240)),
             network_policy=kwargs.pop('network_policy', NetworkPolicy(network_mode='no-network')),
             **kwargs)
         environments.append(env)
@@ -50,7 +50,7 @@ def test_network_declarations_require_explicit_protocol(
     elif declaration == 'phase-public':
         kwargs['phase_network_policies'] = [NetworkPolicy(network_mode='public')]
     elif declaration == 'allow_internet':
-        config = EnvironmentConfig(docker_image='example/synthetic:1', cpus=1,
+        config = EnvironmentConfig(docker_image='example/synthetic:1@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa', cpus=1,
                                    memory_mb=2048, storage_mb=10240)
         config.allow_internet = True
         kwargs['task_env_config'] = config

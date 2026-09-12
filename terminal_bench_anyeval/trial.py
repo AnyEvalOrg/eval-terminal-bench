@@ -29,12 +29,45 @@ def now():
     return datetime.now(timezone.utc).isoformat()
 
 
+def json_safe(value):
+    if value is None or type(value) in (str, bool, int):
+        return value
+    if type(value) is float:
+        return value if math.isfinite(value) else None
+    if isinstance(value, dict):
+        return {k: json_safe(v) for k, v in value.items() if isinstance(k, str)}
+    if isinstance(value, (list, tuple)):
+        return [json_safe(v) for v in value]
+    return None
+
+
+def reject_constant(value):
+    raise ValueError("Non-finite JSON constant is forbidden")
+
+
+def finite_float(value):
+    parsed = float(value)
+    if not math.isfinite(parsed):
+        reject_constant(value)
+    return parsed
+
+
+def echo_bindings(result, spec):
+    if not isinstance(spec, dict):
+        return
+    for dest, source in (("run_id", "run_id"), ("sample_id", "task"),
+                         ("trial_id", "trial_id"), ("attempt", "attempt")):
+        value = spec.get(source)
+        valid = type(value) is int and value > 0 if source == "attempt" else isinstance(value, str) and bool(value)
+        result[dest] = value if valid else None
+
+
 def atomic_write(path: Path, value: dict):
     path.parent.mkdir(parents=True, exist_ok=True)
     fd, temporary = tempfile.mkstemp(prefix=f".{path.name}.", dir=path.parent)
     try:
         with os.fdopen(fd, "w") as stream:
-            json.dump(value, stream, indent=2, allow_nan=False)
+            json.dump(json_safe(value), stream, indent=2, allow_nan=False)
             stream.write("\n")
             stream.flush()
             os.fsync(stream.fileno())
@@ -59,7 +92,7 @@ def empty_result():
 def validate_spec(spec):
     if not isinstance(spec, dict) or type(spec.get("version")) is not int or spec["version"] != 1:
         raise ValueError("Expected trial spec version 1")
-    for key in ("run_id", "trial_id", "task", "api_base", "api_key", "model", "kubeconfig"):
+    for key in ("run_id", "trial_id", "task", "api_base", "api_key", "model", "kubeconfig", "task_dir", "dataset", "agent", "namespace"):
         if not isinstance(spec.get(key), str) or not spec[key]:
             raise ValueError(f"spec.{key} must be a nonempty string")
     if spec.get("sample_id", spec["task"]) != spec["task"]:
@@ -84,6 +117,8 @@ def validate_spec(spec):
     for key in ENV_KEYS - {"ANYEVAL_TB_TMUX_STATIC"}:
         if key in env and env[key] not in {"0", "1"}:
             raise ValueError("Protocol flags must be 0 or 1")
+    if not isinstance(spec.get("timeouts"), dict):
+        raise ValueError("spec.timeouts must be an object")
     for key in ("agent_sec", "verifier_sec"):
         value = spec.get("timeouts", {}).get(key)
         if type(value) not in (int, float) or not math.isfinite(value) or value <= 0:
@@ -162,7 +197,7 @@ def classify(exception_type):
         return "verifier_timeout"
     if exception_type in {"TrialTerminated", "CancelledError", "KeyboardInterrupt"}:
         return "infrastructure"
-    if exception_type in {"ExecStreamClosed", "VerifierPreflightError"} or any(
+    if exception_type in {"ExecStreamClosed", "VerifierPreflightError", "TransferLimitError"} or any(
         word in exception_type for word in ("Infrastructure", "Environment", "Setup", "Download", "RewardFile", "Connection", "ApiException")
     ):
         return "infrastructure"
@@ -224,7 +259,8 @@ def collect_pods(trial_dir):
                                                         "container_name", "container_id", "created_uid", "finished_uid",
                                                         "resource_version", "finished_resource_version", "restart_count",
                                                         "labels", "finished_labels", "selecting_policy_uids",
-                                                        "finished_selecting_policy_uids", "runtime_class_exists",
+                                                        "finished_selecting_policy_uids", "additional_network_policies",
+                                                        "finished_additional_network_policies", "runtime_class_exists",
                                                         "runtime_class_handler", "runtime_class_uid")}})
     return sorted(pods, key=lambda pod: (pod["role"] != "agent", pod["name"]))
 
@@ -240,8 +276,7 @@ def collect_artifacts(trial_dir):
 
 async def execute(spec, result, result_path, control):
     from .k8s_env import ACTIVE_ENVIRONMENTS
-    result.update(run_id=spec.get("run_id"), sample_id=spec.get("task"),
-                  attempt=spec.get("attempt"), trial_id=spec.get("trial_id"))
+    echo_bindings(result, spec)
     control["task"] = asyncio.current_task()
     trial = None
     trial_dir = None
@@ -332,10 +367,9 @@ def main(argv=None):
         with (result_path.parent / (result_path.name + ".private.log")).open("a") as log:
             with redirect_stdout(log), redirect_stderr(log):
                 try:
-                    spec = json.loads(args.spec.read_text())
+                    spec = json.loads(args.spec.read_text(), parse_constant=reject_constant, parse_float=finite_float)
                     if isinstance(spec, dict):
-                        result.update(run_id=spec.get("run_id"), attempt=spec.get("attempt"),
-                                      sample_id=spec.get("task"), trial_id=spec.get("trial_id"))
+                        echo_bindings(result, spec)
                     else:
                         raise ValueError("Spec must be a JSON object")
                     asyncio.run(execute(spec, result, result_path, control))

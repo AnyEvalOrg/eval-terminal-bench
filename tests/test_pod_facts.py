@@ -98,6 +98,7 @@ def test_proxy_log_keeps_only_this_pods_structured_addresses(environment):
 
 
 def test_cleanup_records_lifecycle_end(environment):
+    environment._wait_terminated = AsyncMock()
     environment._capture_final_facts = AsyncMock()
     env = environment
     env._pod_attempted = env._policy_attempted = True
@@ -120,6 +121,8 @@ def test_admission_never_reduces_requested_resources(environment, cpu, rejected)
                 automount_service_account_token=False, containers=[NS(resources=resource_model)],
                 dns_policy=None, dns_config=None))
     env._core.read_namespaced_pod.return_value = pod
+    from b5_fixtures import complete_admission_pod
+    complete_admission_pod(env, env._core.read_namespaced_pod.return_value)
     env._events = AsyncMock(return_value=[])
     if rejected:
         with pytest.raises(RuntimeError, match='reduced'):
