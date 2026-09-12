@@ -33,8 +33,9 @@ spec:
       # The proxy is shared infrastructure: every in-flight trial pins its pod UID
       # at start and refuses publication if it changes. On 2026-09-12 it was
       # rescheduled twice (Spot preemption, then autoscaler consolidation) and each
-      # time every running trial lost its evidence. Standard nodes, not Spot; and
-      # the autoscaler must not evict it to drain a node.
+      # time every running trial lost its evidence. Standard nodes, not Spot; the
+      # safe-to-evict annotation holds off autoscaler drains for up to seven days
+      # per pod (Autopilot's extended-duration limit), not forever.
       nodeSelector:
         cloud.google.com/gke-provisioning: standard
       automountServiceAccountToken: false
