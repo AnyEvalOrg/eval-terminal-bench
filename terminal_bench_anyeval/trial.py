@@ -15,6 +15,7 @@ from urllib.parse import urlsplit
 import uuid
 
 from .agent_settings import validate_agent_kwargs
+from ._optional import trial_imports
 from .eligibility import DATASETS, task_directory, eligibility, verify_task
 
 ENV_KEYS = {"ANYEVAL_TB_EGRESS_PROXY", "ANYEVAL_TB_NO_SPOT", "ANYEVAL_TB_TMUX_STATIC",
@@ -159,7 +160,8 @@ def child_environment(spec):
 
 
 def build_config(spec, output_dir):
-    from harbor.models.trial.config import TrialConfig
+    with trial_imports():
+        from harbor.models.trial.config import TrialConfig
     kwargs = validate_agent_kwargs(spec["agent_kwargs"])
     kwargs["api_base"] = spec["api_base"]
     return TrialConfig(
@@ -275,7 +277,6 @@ def collect_artifacts(trial_dir):
 
 
 async def execute(spec, result, result_path, control):
-    from .k8s_env import ACTIVE_ENVIRONMENTS
     echo_bindings(result, spec)
     control["task"] = asyncio.current_task()
     trial = None
@@ -284,9 +285,12 @@ async def execute(spec, result, result_path, control):
         if control["terminated"]:
             raise TrialTerminated("Child received SIGTERM")
         validate_spec(spec)
+        with trial_imports():
+            from .k8s_env import ACTIVE_ENVIRONMENTS
         with child_environment(spec):
             # Establish the shim and local model metadata before LiteLLM imports.
-            from harbor.trial.trial import Trial
+            with trial_imports():
+                from harbor.trial.trial import Trial
             config = build_config(spec, result_path.parent / "harbor")
             trial_dir = config.trials_dir / config.trial_name
             try:

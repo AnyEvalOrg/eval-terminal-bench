@@ -211,3 +211,64 @@ assert load_allowlist()['version']
 '''
     proc = subprocess.run([sys.executable, '-c', code, str(target), str(synthetic_data[1])], cwd=tmp_path, capture_output=True)
     assert proc.returncode == 0, 'Installed wheel smoke check failed (contents suppressed)'
+
+
+def test_base_wheel_in_fresh_venv_without_trial(wheel_path, tmp_path, synthetic_data):
+    """A real dependency-resolving install must leave the trial stack absent."""
+    import os
+    import venv
+
+    isolated = tmp_path / "base-venv"
+    venv.EnvBuilder(with_pip=True).create(isolated)
+    python = isolated / "bin/python"
+    env = {k: v for k, v in os.environ.items() if k not in {"PYTHONPATH", "PYTHONHOME"}}
+    env["ANYEVAL_TB_DATA_DIR"] = os.environ["ANYEVAL_TB_DATA_DIR"]
+    installed = subprocess.run(
+        [str(python), "-m", "pip", "install", "--disable-pip-version-check", str(wheel_path)],
+        cwd=tmp_path, env=env, capture_output=True, text=True,
+    )
+    assert installed.returncode == 0, "Base wheel dependency installation failed"
+    probe = subprocess.run([str(python), "-c", """
+import importlib.util
+import sys
+import terminal_bench_anyeval; terminal_bench_anyeval.terminal_bench_2_1
+from terminal_bench_anyeval import eligibility, fetch_data, agent_settings
+import yaml
+for name in ('harbor', 'litellm', 'kubernetes', 'inspect_ai'):
+    assert importlib.util.find_spec(name) is None
+    assert name not in sys.modules
+for name in ('k8s_env', 'verifier'):
+    try:
+        __import__('terminal_bench_anyeval.' + name)
+    except RuntimeError as exc:
+        assert 'eval-terminal-bench[trial]' in str(exc)
+    else:
+        raise AssertionError('Trial import unexpectedly succeeded')
+from terminal_bench_anyeval.trial import build_config
+try:
+    build_config({}, None)
+except RuntimeError as exc:
+    assert 'eval-terminal-bench[trial]' in str(exc)
+else:
+    raise AssertionError('Trial configuration unexpectedly succeeded')
+try:
+    terminal_bench_anyeval.terminal_bench_2_1()
+except RuntimeError as exc:
+    assert 'eval-terminal-bench[inspect]' in str(exc)
+else:
+    raise AssertionError('Task construction needs Inspect')
+"""], cwd=tmp_path, env=env, capture_output=True, text=True)
+    assert probe.returncode == 0, "Installed base wheel isolation probe failed"
+
+
+def test_catalogue_construction_does_not_import_trial_stack(monkeypatch, synthetic_data):
+    import builtins
+    import terminal_bench_anyeval
+    original = builtins.__import__
+    def reject_trial(name, *args, **kwargs):
+        if name.split(".")[0] in {"harbor", "litellm", "kubernetes"}:
+            raise AssertionError("Catalogue imported a trial dependency")
+        return original(name, *args, **kwargs)
+    monkeypatch.setattr(builtins, "__import__", reject_trial)
+    assert terminal_bench_anyeval.terminal_bench_2_1().dataset
+    assert terminal_bench_anyeval.terminal_bench_4_0().dataset

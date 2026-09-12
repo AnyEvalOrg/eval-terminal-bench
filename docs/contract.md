@@ -5,8 +5,20 @@ remains `version: 1` for compatibility with the application's Harbor parser.
 The worker launches exactly one child:
 
 ```
-python -m terminal_bench_anyeval.trial --spec /absolute/spec.json --result /absolute/result.json
+/opt/anyeval/harbor-venv/bin/python -I -m terminal_bench_anyeval.trial --spec /absolute/spec.json --result /absolute/result.json
 ```
+
+The worker uses two interpreters: its app environment installs the base
+`eval-terminal-bench` wheel alongside the app's Inspect and OpenAI 3.x pins;
+`/opt/anyeval/harbor-venv` installs `eval-terminal-bench[trial]` (Harbor 0.22.0,
+Kubernetes 36.0.3). Set
+`ANYEVAL_TB_TRIAL_PYTHON=/opt/anyeval/harbor-venv/bin/python` so the runner
+probes and launches that interpreter. Harbor's LiteLLM/OpenAI dependencies remain in the
+child environment. Both interpreters share `ANYEVAL_TB_DATA_DIR`. Fetching and
+verification work in the base interpreter using the Harbor CLI when available,
+or plain HTTP to the public package registry. This changes interpreter
+selection only; spec/result v1 and process isolation are unchanged.
+
 
 The parent owns the model shim (loopback HTTP, authenticated non-streaming OpenAI
 chat completions), provider routing, receipts, budgets and termination. The child

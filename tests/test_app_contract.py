@@ -121,6 +121,7 @@ def synthetic_environment(root, role, binding, monkeypatch):
 
 
 def test_app_contract_literal_bytes(tmp_path, spec, monkeypatch):
+    monkeypatch.setenv("ANYEVAL_TB_TRIAL_PYTHON", __import__("sys").executable)
     if APP is None:
         pytest.skip("ANYEVAL_APP_CHECKOUT is unset; companion app contract gate skipped")
     assert (APP / 'app/harbor_trial.py').is_file(), 'Companion checkout is required for the contract gate'
@@ -194,11 +195,14 @@ def test_app_contract_literal_bytes(tmp_path, spec, monkeypatch):
         def poll(self): return 0
         def wait(self, timeout=None): return 0
     import app.harbor_trial as consumer
+    import app.harbor_trial as app_trial
+    runtime_kwargs = ({"runtime": app_trial.trial_runtime()}
+                      if hasattr(app_trial, "trial_runtime") else {})
     monkeypatch.setattr(consumer.subprocess, 'Popen', Child)
     monkeypatch.setattr(consumer.os, 'killpg', lambda *a: None)
     shim = NS(api_base='http://127.0.0.1:12345/v1', token='synthetic-shim-token', model='gpt-5-mini',
               identity={'trial_id': 'parent-authorized'})
-    result = run_trial(spec=spec, root=tmp_path/'child', shim=shim)
+    result = run_trial(spec=spec, root=tmp_path/'child', shim=shim, **runtime_kwargs)
     assert result['status'] == 'success'
     assert result['scores'] == {'harbor': {'value': 'C'}}
     assert result['trial_id'] == 'parent-authorized'
