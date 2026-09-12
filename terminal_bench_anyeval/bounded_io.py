@@ -31,8 +31,17 @@ def as_file(data):
 
 def members(archive, byte_limit, member_limit):
     total = 0
+    content_sizes = {}
     for index, member in enumerate(archive, 1):
-        total += member.size
+        size = member.size
+        if member.islnk():
+            target = str(PurePosixPath(member.linkname))
+            if target not in content_sizes:
+                raise ValueError("Hardlink must refer to an earlier regular file")
+            # Filtered downloads materialize each link as a separate file.
+            # Charge its resolved size before yielding it to any writer.
+            size = content_sizes[target]
+        total += size
         if index > member_limit or total > byte_limit:
             raise TransferLimitError("Archive expanded byte/member limit exceeded")
         path = PurePosixPath(member.name)
@@ -44,6 +53,8 @@ def members(archive, byte_limit, member_limit):
             link = PurePosixPath(member.linkname)
             if link.is_absolute() or ".." in link.parts:
                 raise ValueError("Unsafe artifact archive link")
+        if member.isfile() or member.islnk():
+            content_sizes[str(path)] = size
         yield member
 
 

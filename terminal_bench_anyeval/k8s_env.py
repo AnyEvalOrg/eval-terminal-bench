@@ -1002,7 +1002,6 @@ class AnyEvalK8sEnvironment(BaseEnvironment):
                          "tests_ready": True, "tests_source": guard["source"]}})
 
     async def exec(self, command, cwd=None, env=None, timeout_sec=None, user=None):
-        await self._check_verifier_guard()
         effective_env = self._merge_env(env) or {}
         if any(not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", k) for k in effective_env):
             raise ValueError("Invalid exec environment variable name")
@@ -1027,6 +1026,8 @@ class AnyEvalK8sEnvironment(BaseEnvironment):
                           f"su \"$u\" -s /bin/bash -c {shlex.quote(script)}")
             else:
                 script = shlex.join(["su", str(user), "-s", "/bin/bash", "-c", script])
+        if self._verifier_guard and command == self._verifier_guard.get("command"):
+            await self._check_verifier_guard()
         stdout, stderr, code = await self._stream(
             ["sh", "-c", script], timeout_sec=timeout_sec + 10 if timeout_sec else None,
             callback=self._output_callback())
@@ -1044,7 +1045,7 @@ class AnyEvalK8sEnvironment(BaseEnvironment):
         # Tar's end-of-archive blocks terminate extraction without stdin EOF
         # (works with the v4 exec protocol as in Harbor GKE).
         inventory(data, self.max_transfer_bytes, self.max_archive_members)
-        command = f"mkdir -p {shlex.quote(target_dir)} && tar xf - -C {shlex.quote(target_dir)}"
+        command = f"mkdir -p {shlex.quote(target_dir)} && tar --no-same-owner -xf - -C {shlex.quote(target_dir)}"
         _, _, code = await self._transfer_stream(["sh", "-c", command], data=data,
                                         timeout_sec=self.transfer_timeout_sec)
         if code:
@@ -1088,6 +1089,8 @@ class AnyEvalK8sEnvironment(BaseEnvironment):
             expanded += member.size
             if count > self.max_archive_members or expanded > self.max_transfer_bytes:
                 raise TransferLimitError("Archive expanded byte/member limit exceeded")
+            member.uid = member.gid = 0
+            member.uname = member.gname = "root"
             return member
         with tarfile.open(fileobj=LimitedWriter(buffer, self.max_transfer_bytes), mode="w|") as archive:
             archive.add(Path(source), arcname=archive_name, filter=check)
