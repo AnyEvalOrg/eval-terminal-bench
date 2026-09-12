@@ -40,7 +40,7 @@ class FakeTrial:
         (self.directory / "agent/trajectory.json").write_text(json.dumps({"messages": ["PUBLIC_TRANSCRIPT"]}))
         (self.directory / "verifier/test-stdout.txt").write_text("SYNTHETIC_PRIVATE_VERIFIER")
         for role in ("agent", "verifier"):
-            facts = {"role": role, "pod": "tb-" + role, "uid": role + "-uid", "node": "node-1",
+            facts = {"verifier_health": {"setup_completed": True, "completed": True}, "role": role, "pod": "tb-" + role, "uid": role + "-uid", "node": "node-1",
                      "runtimeClassName": "gvisor", "image": "synthetic:1",
                      "containers": [{"name": "main", "imageID": "registry/synthetic@sha256:" + "a" * 64}],
                      "resources_requested": {"requests": {"cpu": "1"}},

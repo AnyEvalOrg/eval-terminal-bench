@@ -45,7 +45,8 @@ def test_round_trip(fake, spec, spec_file, tmp_path, mode, outcome, reward):
     assert fake.config.agent.kwargs["llm_call_kwargs"] == spec["agent_kwargs"]["llm_call_kwargs"]
     assert spec["api_key"] not in fake.config.model_dump_json()
     if mode != "create_error":
-        assert result["trial_id"] == "synthetic-harbor-trial"
+        assert result["trial_id"] == spec["trial_id"]
+        assert result["harbor_trial_id"] == "synthetic-harbor-trial"
         assert result["agent"] == {"episodes": 3, "input_tokens": 123, "output_tokens": 45,
                                     "cache_tokens": 67, "summarizations": 1}
         assert [p["role"] for p in result["pods"]] == ["agent", "verifier"]

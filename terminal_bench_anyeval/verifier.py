@@ -4,6 +4,7 @@ The stock verifier still stages and executes tests exactly once. Recovery resume
 at download/reward parsing, never at verify(). Separate verifier images own /tests.
 """
 import asyncio
+import re
 from functools import wraps
 
 from harbor.models.trial.paths import EnvironmentPaths
@@ -48,21 +49,56 @@ def install_verifier_hook(environment_class):
         if not isinstance(environment, environment_class):
             return await original(self)
         await environment._require_running()
+        environment._save_facts({"verifier_health": {"setup_completed": False, "completed": False}})
         sources, source_root, entrypoint = self._resolve_tests()
+        from harbor.utils.scripts import build_execution_command
+        paths = EnvironmentPaths.for_os(environment.os)
+        script = str(paths.tests_dir / entrypoint.relative_to(source_root).as_posix())
+        stdout = str(paths.verifier_dir / self.trial_paths.test_stdout_path.relative_to(self.trial_paths.verifier_dir).as_posix())
         previous = environment._verifier_guard
         environment._verifier_guard = {
-            "pending_uploads": set(sources), "checked": False,
+            "pending_uploads": set(sources), "checked": False, "execution_completed": False,
+            "command": build_execution_command(script, stdout_path=stdout, task_os=environment.os),
             "script": str(EnvironmentPaths.for_os(environment.os).tests_dir /
                           entrypoint.relative_to(source_root).as_posix()),
             "source": "prebuilt-image" if self._skip_tests_upload else "uploaded",
         }
         try:
             try:
-                return await original(self)
+                result = await original(self)
             except DownloadVerifierDirError:
-                return await recover_download(self)
+                result = await recover_download(self)
+            guard = environment._verifier_guard
+            text = self.trial_paths.test_stdout_path.read_text(errors="replace")
+            unhealthy = re.search(r"Temporary failure resolving|Could not resolve host|uvx: (?:command )?not found|curl: (?:command )?not found|No module named pytest", text, re.I)
+            environment._save_facts({"verifier_health": {
+                "setup_completed": guard["checked"] and not bool(unhealthy),
+                "completed": guard["execution_completed"] and not bool(unhealthy)}})
+            return result
         finally:
             environment._verifier_guard = previous
 
     verify._anyeval_hook = True
     Verifier.verify = verify
+
+
+def install_artifact_hook(environment_class):
+    """Scope read-back hashing to Harbor's actual agent-to-verifier transfers."""
+    from harbor.trial.artifact_handler import ArtifactHandler
+    original = ArtifactHandler.upload_artifacts
+    if getattr(original, "_anyeval_hook", False):
+        return
+
+    @wraps(original)
+    async def upload(self, target_env, *args, **kwargs):
+        if not isinstance(target_env, environment_class):
+            return await original(self, target_env, *args, **kwargs)
+        previous = target_env._artifact_transfer
+        target_env._artifact_transfer = True
+        try:
+            return await original(self, target_env, *args, **kwargs)
+        finally:
+            target_env._artifact_transfer = previous
+
+    upload._anyeval_hook = True
+    ArtifactHandler.upload_artifacts = upload

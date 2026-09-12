@@ -48,7 +48,9 @@ def empty_result():
             "outcome": "error", "reward": None, "exception": None,
             "agent": {"episodes": 0, "input_tokens": 0, "output_tokens": 0,
                       "cache_tokens": 0, "summarizations": 0},
-            "pods": [], "artifacts": {"trajectory_path": None,
+            "sample_id": None, "harbor_trial_id": None,
+            "verifier_health": {"setup_completed": False, "completed": False},
+            "verified_artifacts": [], "pods": [], "artifacts": {"trajectory_path": None,
                                       "verifier_stdout_path": None, "proxy_log_path": None},
             "timing": {"started_at": now(), "finished_at": None,
                        "agent_seconds": 0, "verifier_seconds": 0}}
@@ -57,9 +59,11 @@ def empty_result():
 def validate_spec(spec):
     if not isinstance(spec, dict) or type(spec.get("version")) is not int or spec["version"] != 1:
         raise ValueError("Expected trial spec version 1")
-    for key in ("run_id", "task", "api_base", "api_key", "model", "kubeconfig"):
+    for key in ("run_id", "trial_id", "task", "api_base", "api_key", "model", "kubeconfig"):
         if not isinstance(spec.get(key), str) or not spec[key]:
             raise ValueError(f"spec.{key} must be a nonempty string")
+    if spec.get("sample_id", spec["task"]) != spec["task"]:
+        raise ValueError("spec.sample_id must equal spec.task")
     if type(spec.get("attempt")) is not int or spec["attempt"] < 1:
         raise ValueError("spec.attempt must be a positive integer")
     if spec.get("dataset") not in DATASETS or spec.get("agent") != "terminus-2":
@@ -129,7 +133,9 @@ def build_config(spec, output_dir):
         agent={"name": "terminus-2", "model_name": spec["model"], "kwargs": kwargs,
                "override_timeout_sec": spec["timeouts"]["agent_sec"]},
         environment={"import_path": "terminal_bench_anyeval.k8s_env:AnyEvalK8sEnvironment",
-                     "delete": True, "kwargs": {"namespace": spec["namespace"]}},
+                     "delete": True, "kwargs": {"namespace": spec["namespace"],
+                         "binding": {"run_id": spec["run_id"], "sample_id": spec["task"],
+                                     "attempt": spec["attempt"], "trial_id": spec["trial_id"]}}},
         verifier={"override_timeout_sec": spec["timeouts"]["verifier_sec"]},
     )
 
@@ -211,11 +217,15 @@ def collect_pods(trial_dir):
                      "runtime_class_name": facts.get("runtimeClassName"), "image": facts.get("image"),
                      "image_digest": digest, "resources_requested": facts.get("resources_requested"),
                      "resources_admitted": facts.get("resources"), "network_policy": facts.get("network_policy"),
-                     "proxy": ({k: facts["egress_proxy"].get(k) for k in
-                                ("pod", "pod_uid", "service_ip", "allowlist_version", "allowlist_sha256")}
-                               if facts.get("egress_proxy") else None),
+                     "proxy": facts.get("egress_proxy"),
                      **{key: facts.get(key) for key in ("dmesg_gvisor_boot", "kernel_release", "kubelet_version",
-                                                        "node_labels", "started_at", "ended_at", "environment_context")}})
+                                                        "node_labels", "started_at", "ended_at", "environment_context",
+                                                        "run_id", "sample_id", "attempt", "trial_id", "namespace",
+                                                        "container_name", "container_id", "created_uid", "finished_uid",
+                                                        "resource_version", "finished_resource_version", "restart_count",
+                                                        "labels", "finished_labels", "selecting_policy_uids",
+                                                        "finished_selecting_policy_uids", "runtime_class_exists",
+                                                        "runtime_class_handler", "runtime_class_uid")}})
     return sorted(pods, key=lambda pod: (pod["role"] != "agent", pod["name"]))
 
 
@@ -230,6 +240,8 @@ def collect_artifacts(trial_dir):
 
 async def execute(spec, result, result_path, control):
     from .k8s_env import ACTIVE_ENVIRONMENTS
+    result.update(run_id=spec.get("run_id"), sample_id=spec.get("task"),
+                  attempt=spec.get("attempt"), trial_id=spec.get("trial_id"))
     control["task"] = asyncio.current_task()
     trial = None
     trial_dir = None
@@ -244,7 +256,7 @@ async def execute(spec, result, result_path, control):
             trial_dir = config.trials_dir / config.trial_name
             try:
                 trial = await Trial.create(config)
-                result["trial_id"] = str(trial.id)
+                result["harbor_trial_id"] = str(trial.id)
                 harbor_result = await trial.run()
                 apply_harbor_result(result, harbor_result, spec["api_key"])
             except BaseException as exc:
@@ -267,6 +279,18 @@ async def execute(spec, result, result_path, control):
             try:
                 result["pods"] = collect_pods(trial_dir)
                 result["artifacts"] = collect_artifacts(trial_dir)
+                health = []
+                for path in sorted((trial_dir / "anyeval").glob("tb-*.json")):
+                    facts = json.loads(path.read_text())
+                    if "verifier_health" in facts:
+                        health.append(facts["verifier_health"])
+                    result["verified_artifacts"].extend(facts.get("verified_artifacts", []))
+                result["verifier_health"] = {
+                    key: bool(health) and all(h.get(key) is True for h in health)
+                    for key in ("setup_completed", "completed")}
+                if result["outcome"] == "verified" and not all(result["verifier_health"].values()):
+                    record_exception(result, RuntimeError("Verifier health was not proved"))
+                    result["outcome"] = "infrastructure"
             except Exception as exc:
                 record_exception(result, exc, spec.get("api_key", ""))
                 result["outcome"] = "infrastructure"
@@ -310,7 +334,8 @@ def main(argv=None):
                 try:
                     spec = json.loads(args.spec.read_text())
                     if isinstance(spec, dict):
-                        result.update(run_id=spec.get("run_id"), attempt=spec.get("attempt"))
+                        result.update(run_id=spec.get("run_id"), attempt=spec.get("attempt"),
+                                      sample_id=spec.get("task"), trial_id=spec.get("trial_id"))
                     else:
                         raise ValueError("Spec must be a JSON object")
                     asyncio.run(execute(spec, result, result_path, control))

@@ -30,6 +30,9 @@ def environment():
         spec=client.V1NetworkPolicySpec(
             pod_selector=client.V1LabelSelector(match_labels=policy['spec']['podSelector']['matchLabels']),
             policy_types=policy['spec']['policyTypes'], ingress=[], egress=[]))
+    env._network.list_namespaced_network_policy.return_value = NS(items=[env._network.read_namespaced_network_policy.return_value])
+    env._node_api = MagicMock()
+    env._node_api.read_runtime_class.return_value = NS(handler='runsc', metadata=NS(uid='runtime-uid'))
     env.exec = AsyncMock(side_effect=[ExecResult(stdout='synthetic-kernel', stderr='', return_code=0),
                                       ExecResult(stdout='synthetic gVisor boot', stderr='', return_code=0)])
     yield env
@@ -45,9 +48,9 @@ def facts(env):
 
 def test_live_api_provenance_capture(environment):
     env = environment
-    asyncio.run(env._capture_runtime_facts(NS(spec=NS(node_name='node-1'))))
+    asyncio.run(env._capture_runtime_facts(NS(spec=NS(node_name='node-1', runtime_class_name='gvisor'), metadata=NS(uid='pod-uid', labels=environment._labels))))
     saved = facts(env)
-    assert saved['network_policy'] == {'name': env.pod_name, 'uid': 'policy-uid',
+    assert {k: v for k, v in saved['network_policy'].items() if k in ('name', 'uid', 'resource_version', 'egress_to_proxy_only')} == {'name': env.pod_name, 'uid': 'policy-uid',
                                         'resource_version': '9', 'egress_to_proxy_only': False}
     assert saved['kubelet_version'] == 'v1.35.1'
     assert saved['node_labels'] == {'sandbox.gke.io/runtime': 'gvisor'}
@@ -57,7 +60,7 @@ def test_live_api_provenance_capture(environment):
 
 def test_missing_node_permissions_are_recorded_as_missing(environment):
     environment._core.read_node.side_effect = PermissionError('synthetic')
-    asyncio.run(environment._capture_runtime_facts(NS(spec=NS(node_name='node-1'))))
+    asyncio.run(environment._capture_runtime_facts(NS(spec=NS(node_name='node-1', runtime_class_name='gvisor'), metadata=NS(uid='pod-uid', labels=environment._labels))))
     saved = facts(environment)
     assert saved['node_evidence_error'] == 'PermissionError'
     assert 'kubelet_version' not in saved
@@ -66,7 +69,7 @@ def test_missing_node_permissions_are_recorded_as_missing(environment):
 def test_network_policy_drift_fails_closed(environment):
     environment._network.read_namespaced_network_policy.return_value.spec.egress = [client.V1NetworkPolicyEgressRule()]
     with pytest.raises(RuntimeError, match='attest admitted network policy'):
-        asyncio.run(environment._capture_runtime_facts(NS(spec=NS(node_name='node-1'))))
+        asyncio.run(environment._capture_runtime_facts(NS(spec=NS(node_name='node-1', runtime_class_name='gvisor'), metadata=NS(uid='pod-uid', labels=environment._labels))))
     assert 'network_policy' not in facts(environment)
 
 
@@ -95,6 +98,7 @@ def test_proxy_log_keeps_only_this_pods_structured_addresses(environment):
 
 
 def test_cleanup_records_lifecycle_end(environment):
+    environment._capture_final_facts = AsyncMock()
     env = environment
     env._pod_attempted = env._policy_attempted = True
     asyncio.run(env.stop(delete=False))
@@ -110,8 +114,8 @@ def test_admission_never_reduces_requested_resources(environment, cpu, rejected)
     resources['requests']['cpu'] = resources['limits']['cpu'] = cpu
     resource_model = client.V1ResourceRequirements(**resources)
     pod = NS(status=NS(phase='Running', pod_ip='10.2.0.1', container_statuses=[
-        NS(name='main', image='synthetic', image_id='synthetic@sha256:'+'a'*64, state=NS(running=True))]),
-        metadata=NS(uid='pod-uid', labels={}),
+        NS(name='main', image='synthetic', image_id='synthetic@sha256:'+'a'*64, container_id='containerd://main', restart_count=0, state=NS(running=True))]),
+        metadata=NS(uid='pod-uid', resource_version='1', labels={}, annotations={}),
         spec=NS(runtime_class_name='gvisor', node_name='node-1', node_selector={},
                 automount_service_account_token=False, containers=[NS(resources=resource_model)],
                 dns_policy=None, dns_config=None))

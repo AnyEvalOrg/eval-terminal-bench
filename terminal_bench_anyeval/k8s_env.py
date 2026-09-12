@@ -62,12 +62,15 @@ class VerifierPreflightError(RuntimeError):
 
 class AnyEvalK8sEnvironment(BaseEnvironment):
     def __init__(self, *args, namespace="anyeval-sandbox", startup_timeout_sec=600,
-                 transfer_timeout_sec=300, **kwargs):
+                 transfer_timeout_sec=300, binding=None, **kwargs):
         if namespace != "anyeval-sandbox":
             raise ValueError("AnyEval is restricted to namespace anyeval-sandbox")
         for name in ("cpus", "memory_mb", "storage_mb", "gpus", "tpu"):
             if kwargs.get(f"override_{name}") is not None:
                 raise ValueError("AnyEval requires task.toml resources; overrides are refused")
+        self.binding = dict(binding or {})
+        self._artifact_transfer = False
+        self._final_captured = False
         self.namespace = namespace
         self.startup_timeout_sec = float(startup_timeout_sec)
         self.transfer_timeout_sec = float(transfer_timeout_sec)
@@ -87,6 +90,12 @@ class AnyEvalK8sEnvironment(BaseEnvironment):
             raise ValueError("Trial name must be a Kubernetes label value (1–63 characters)")
         self._labels = {"inspect/service": "default", "anyeval.io/trial": trial,
                         "anyeval.io/environment": self.pod_name}
+        self._annotations = {}
+        for key, value in self.binding.items():
+            text = str(value)
+            label = text if re.fullmatch(r"[A-Za-z0-9](?:[A-Za-z0-9_.-]{0,61}[A-Za-z0-9])?", text) else hashlib.sha256(text.encode()).hexdigest()[:63]
+            self._labels["anyeval.io/" + key.replace("_", "-")] = label
+            self._annotations["anyeval.io/" + key.replace("_", "-")] = text
         self.egress_proxy_requested = os.environ.get("ANYEVAL_TB_EGRESS_PROXY") == "1"
         # Harbor's primary environment has this exact semantic session ID.
         # Separate verifiers (including truncated IDs) never receive proxy egress.
@@ -195,13 +204,14 @@ class AnyEvalK8sEnvironment(BaseEnvironment):
         self._client = client.ApiClient(cfg)
         self._core = client.CoreV1Api(self._client)
         self._network = client.NetworkingV1Api(self._client)
+        self._node_api = client.NodeV1Api(self._client)
 
     def _manifests(self):
         e = self.task_env_config
         resources = {"cpu": str(e.cpus), "memory": f"{e.memory_mb}Mi",
                      "ephemeral-storage": f"{e.storage_mb}Mi"}
         metadata = {"name": self.pod_name, "namespace": self.namespace,
-                    "labels": dict(self._labels)}
+                    "labels": dict(self._labels), "annotations": dict(self._annotations)}
         pod = {"apiVersion": "v1", "kind": "Pod", "metadata": metadata,
                "spec": {"runtimeClassName": "gvisor",
                         "nodeSelector": ({} if os.environ.get("ANYEVAL_TB_NO_SPOT") == "1" else {"cloud.google.com/gke-spot": "true"}),
@@ -301,7 +311,34 @@ class AnyEvalK8sEnvironment(BaseEnvironment):
         if (service.spec.selector != {"anyeval.io/role": "egress-proxy"}
                 or (proxy.metadata.labels or {}).get("anyeval.io/role") != "egress-proxy"):
             raise RuntimeError("Proxy Pod/Service must use the egress-proxy role selector")
-        self._proxy_facts = {"pod": getattr(proxy.metadata, "name", None),
+        endpoints = await self._call(self._core.read_namespaced_endpoints,
+                                      "iron-proxy", self.namespace, _request_timeout=20)
+        endpoint_uids = sorted({a.target_ref.uid for subset in endpoints.subsets or []
+                                for a in subset.addresses or [] if a.target_ref and a.target_ref.kind == "Pod"})
+        ready_uids = sorted(p.metadata.uid for p in ready)
+        if endpoint_uids != ready_uids or len(ready) != 1:
+            raise AnyEvalInfrastructureError("Proxy endpoints must identify exactly one captured ready Pod")
+        image_id = proxy.status.container_statuses[0].image_id
+        match = re.search(r"sha256:[0-9a-f]{64}$", image_id or "")
+        if match is None:
+            raise AnyEvalInfrastructureError("Proxy image digest was not resolved")
+        policies = await self._call(self._network.list_namespaced_network_policy,
+                                    self.namespace, _request_timeout=20)
+        proxy_policies = []
+        for policy in policies.items:
+            actual = self._client.sanitize_for_serialization(policy)
+            if self._selects(actual["spec"]["podSelector"], proxy.metadata.labels or {}):
+                proxy_policies.append({"name": policy.metadata.name, "uid": policy.metadata.uid,
+                                       "resource_version": policy.metadata.resource_version,
+                                       "spec": actual["spec"], "observed_from": "kubernetes_api",
+                                       "source": "proxy_policy", "pod_uid": proxy.metadata.uid})
+        self._proxy_facts = {"image_digest": match.group(0), "service_uid": service.metadata.uid,
+                             "endpoint_uids": endpoint_uids, "labels": dict(proxy.metadata.labels or {}),
+                             "mode": "warn" if allow[0].get("warn") else "enforce",
+                             "active_config_name": cm_name, "active_config_sha256": source_digest,
+                             "configmap_uid": cm.metadata.uid,
+                             "network_policies": sorted(proxy_policies, key=lambda p: p["uid"]),
+                             "pod": getattr(proxy.metadata, "name", None),
                              "pod_uid": getattr(proxy.metadata, "uid", None),
                              "service_ip": ip,
                              "proxy_ip": ip, "allowlist_sha256": source_digest,
@@ -332,9 +369,105 @@ class AnyEvalK8sEnvironment(BaseEnvironment):
         temporary.write_text(json.dumps({**previous, **data}, indent=2) + "\n")
         os.replace(temporary, path)
 
+    @staticmethod
+    def _selects(selector, labels):
+        if any(labels.get(k) != v for k, v in (selector.get("matchLabels") or {}).items()):
+            return False
+        for rule in selector.get("matchExpressions") or []:
+            key, op, values = rule["key"], rule["operator"], rule.get("values", [])
+            if op == "In" and (key not in labels or labels[key] not in values):
+                return False
+            if op == "NotIn" and key in labels and labels[key] in values:
+                return False
+            if op == "Exists" and key not in labels:
+                return False
+            if op == "DoesNotExist" and key in labels:
+                return False
+            if op not in {"In", "NotIn", "Exists", "DoesNotExist"}:
+                raise AnyEvalInfrastructureError("Unknown NetworkPolicy selector operator")
+        return True
+
+    async def _policy_facts(self, pod, *, final=False):
+        policy = await self._call(self._network.read_namespaced_network_policy,
+                                  self.pod_name, self.namespace, _request_timeout=20)
+        spec = self._client.sanitize_for_serialization(policy)["spec"]
+        # Kubernetes serializes omitted empty lists as null; preserve all other API fields.
+        spec = dict(spec, ingress=spec.get("ingress") or [], egress=spec.get("egress") or [])
+        if spec != self._manifests()[1]["spec"]:
+            raise AnyEvalInfrastructureError("Admitted network policy differs from requested isolation")
+        policies = await self._call(self._network.list_namespaced_network_policy,
+                                    self.namespace, _request_timeout=20)
+        selected = sorted(p.metadata.uid for p in policies.items if self._selects(
+            self._client.sanitize_for_serialization(p)["spec"]["podSelector"], pod.metadata.labels or {}))
+        self._save_facts({"finished_selecting_policy_uids" if final else "selecting_policy_uids": selected})
+        if selected != [policy.metadata.uid]:
+            raise AnyEvalInfrastructureError("Additional or missing selecting NetworkPolicies")
+        if not self._selects(spec["podSelector"], pod.metadata.labels or {}):
+            raise AnyEvalInfrastructureError("Policy does not select the live pod")
+        return {"selecting_policy_uids": selected, "network_policy": {
+            "name": policy.metadata.name, "uid": policy.metadata.uid,
+            "resource_version": policy.metadata.resource_version,
+            "observed_from": "kubernetes_api", "source": "package_policy",
+            "pod_uid": pod.metadata.uid, "spec": spec,
+            "egress_to_proxy_only": self.egress_proxy_enabled,
+            "deny_all": not bool(spec["egress"]), "mode": "enforce"}}
+
+    async def _capture_final_facts(self):
+        path = self.trial_paths.trial_dir / "anyeval" / f"{self.pod_name}.json"
+        initial = json.loads(path.read_text())
+        pod = await self._call(self._core.read_namespaced_pod, self.pod_name,
+                               self.namespace, _request_timeout=20)
+        statuses = pod.status.container_statuses or []
+        final = {"finished_uid": pod.metadata.uid,
+                 "finished_resource_version": pod.metadata.resource_version,
+                 "finished_labels": pod.metadata.labels,
+                 "restart_count": sum(s.restart_count for s in statuses),
+                 "container_id": next(s.container_id for s in statuses if s.name == "main")}
+        self._save_facts(final)
+        observed = await self._policy_facts(pod, final=True)
+        policy = dict(initial["network_policy"],
+                      finished_resource_version=observed["network_policy"]["resource_version"])
+        self._save_facts({"network_policy": policy,
+                          "finished_selecting_policy_uids": observed["selecting_policy_uids"]})
+        if (pod.metadata.uid != initial["created_uid"] or final["restart_count"] != 0
+                or final["container_id"] != initial["container_id"]
+                or final["finished_labels"] != initial["labels"]
+                or any((pod.metadata.annotations or {}).get("anyeval.io/" + k.replace("_", "-")) != str(v)
+                       for k, v in self.binding.items())
+                or observed["selecting_policy_uids"] != initial["selecting_policy_uids"]
+                or policy["finished_resource_version"] != policy["resource_version"]):
+            raise AnyEvalInfrastructureError("Pod or NetworkPolicy changed during the attempt")
+        if self.egress_proxy_enabled:
+            active = dict(self._proxy_facts)
+            await self._prepare_proxy()
+            final_proxy = self._proxy_facts
+            active.update(finished_pod_uid=final_proxy["pod_uid"],
+                          finished_config_name=final_proxy["active_config_name"],
+                          finished_config_sha256=final_proxy["active_config_sha256"],
+                          finished_configmap_uid=final_proxy["configmap_uid"],
+                          finished_proxy_config_sha256=final_proxy["config_sha256"])
+            self._proxy_facts = active
+            self._save_facts({"egress_proxy": active})
+            for key in ("pod_uid", "image_digest", "service_uid", "endpoint_uids", "labels",
+                        "active_config_name", "active_config_sha256", "config_sha256", "mode",
+                        "configmap_uid", "network_policies"):
+                if active[key] != final_proxy[key]:
+                    raise AnyEvalInfrastructureError("Proxy identity/configuration changed during the attempt")
+            active["network_policies"] = [dict(p, finished_resource_version=p["resource_version"])
+                                          for p in final_proxy["network_policies"]]
+            self._save_facts({"egress_proxy": active})
+
     async def _capture_runtime_facts(self, pod):
         """Evidence from live API objects and exec; absence is never an attestation."""
         facts = {}
+        try:
+            runtime = await self._call(self._node_api.read_runtime_class,
+                                       pod.spec.runtime_class_name, _request_timeout=20)
+            facts.update(runtime_class_exists=runtime is not None,
+                         runtime_class_handler=runtime.handler,
+                         runtime_class_uid=runtime.metadata.uid)
+        except Exception as exc:
+            facts.update(runtime_class_exists=False, runtime_class_evidence_error=type(exc).__name__)
         try:
             node = await self._call(self._core.read_node, pod.spec.node_name, _request_timeout=20)
             facts.update(kubelet_version=node.status.node_info.kubelet_version,
@@ -343,27 +476,11 @@ class AnyEvalK8sEnvironment(BaseEnvironment):
         except Exception as exc:
             facts["node_evidence_error"] = type(exc).__name__
         try:
-            policy = await self._call(self._network.read_namespaced_network_policy,
-                                      self.pod_name, self.namespace, _request_timeout=20)
-            actual = self._client.sanitize_for_serialization(policy)
-            spec = actual.get("spec", {})
-            expected = self._manifests()[1]["spec"]
-            if spec != expected:
-                # API servers may materialize absent empty lists as null.
-                normalized = dict(spec)
-                for key in ("ingress", "egress"):
-                    normalized[key] = normalized.get(key) or []
-                if normalized != expected:
-                    raise RuntimeError("Admitted network policy differs from requested isolation")
-            facts["network_policy"] = {
-                "name": policy.metadata.name, "uid": policy.metadata.uid,
-                "resource_version": policy.metadata.resource_version,
-                "egress_to_proxy_only": self.egress_proxy_enabled,
-            }
+            facts.update(await self._policy_facts(pod))
         except Exception as exc:
             facts["network_policy_evidence_error"] = type(exc).__name__
             self._save_facts(facts)
-            raise RuntimeError("Could not attest admitted network policy") from exc
+            raise AnyEvalInfrastructureError("Could not attest admitted network policy") from exc
         for key, command in (("kernel_release", "uname -r"),
                              ("dmesg_gvisor_boot", "dmesg 2>/dev/null | head -n 40")):
             try:
@@ -384,6 +501,11 @@ class AnyEvalK8sEnvironment(BaseEnvironment):
             if last_phase == "Running" and statuses and all(s.state.running for s in statuses):
                 facts = {"pod": self.pod_name, "namespace": self.namespace,
                          "uid": getattr(pod.metadata, "uid", None),
+                         "created_uid": pod.metadata.uid,
+                         "resource_version": pod.metadata.resource_version,
+                         "container_name": "main",
+                         "container_id": next(s.container_id for s in statuses if s.name == "main"),
+                         "restart_count": sum(s.restart_count for s in statuses),
                          "pod_ip": getattr(pod.status, "pod_ip", None),
                          "session_id": self.session_id, "image": self.task_env_config.docker_image,
                          "runtimeClassName": pod.spec.runtime_class_name,
@@ -401,6 +523,12 @@ class AnyEvalK8sEnvironment(BaseEnvironment):
                              dnsPolicy=pod.spec.dns_policy,
                              dnsConfig=self._client.sanitize_for_serialization(pod.spec.dns_config),
                              networkPolicy=self._manifests()[1])
+                annotations = pod.metadata.annotations or {}
+                for key, expected in self.binding.items():
+                    observed = annotations.get("anyeval.io/" + key.replace("_", "-"))
+                    if observed != str(expected) or any((pod.metadata.labels or {}).get(k) != v for k, v in self._labels.items()):
+                        raise AnyEvalInfrastructureError("Pod identity binding changed at admission")
+                    facts[key] = int(observed) if key == "attempt" else observed
                 self._save_facts(facts)
                 # Record upward admission changes; refuse reduced resources.
                 wanted = self._manifests()[0]["spec"]["containers"][0]["resources"]
@@ -510,6 +638,13 @@ class AnyEvalK8sEnvironment(BaseEnvironment):
             if self.egress_proxy_enabled and self._proxy_facts:
                 await self._collect_proxy_log()
             failures = []
+            if self._pod_attempted and not self._final_captured:
+                try:
+                    await self._capture_final_facts()
+                    self._final_captured = True
+                except Exception as exc:
+                    self._save_facts({"final_evidence_error": type(exc).__name__})
+                    failures.append("final evidence: " + type(exc).__name__)
             for attempted, api, name in (
                 ("_pod_attempted", self._core.delete_namespaced_pod, "pod"),
                 ("_policy_attempted", self._network.delete_namespaced_network_policy, "policy"),
@@ -530,12 +665,14 @@ class AnyEvalK8sEnvironment(BaseEnvironment):
                             failures.append(f"{name}: {type(exc).__name__}")
                         else:
                             await asyncio.sleep(1)
-            if failures:
+            if self._pod_attempted or self._policy_attempted:
                 raise AnyEvalInfrastructureError("AnyEval cleanup failed: " + "; ".join(failures))
             await self._call(self._client.close)
             self._client = self._core = self._network = None
             self._save_facts({"ended_at": _now()})
             ACTIVE_ENVIRONMENTS.discard(self)
+            if failures:
+                raise AnyEvalInfrastructureError("AnyEval final evidence failed: " + "; ".join(failures))
 
     async def _collect_proxy_log(self):
         """Private, bounded proxy diagnostics attributable to this pod IP only."""
@@ -695,6 +832,7 @@ class AnyEvalK8sEnvironment(BaseEnvironment):
         if code:
             raise VerifierPreflightError("tests/ or verifier entrypoint is missing")
         guard["checked"] = True
+        self._save_facts({"verifier_health": {"setup_completed": True, "completed": False}})
         self._save_facts({"verifier_preflight": {"pod_phase": "Running",
                          "tests_ready": True, "tests_source": guard["source"]}})
 
@@ -727,6 +865,8 @@ class AnyEvalK8sEnvironment(BaseEnvironment):
         stdout, stderr, code = await self._stream(
             ["sh", "-c", script], timeout_sec=timeout_sec + 10 if timeout_sec else None,
             callback=self._output_callback())
+        if self._verifier_guard and command == self._verifier_guard.get("command"):
+            self._verifier_guard["execution_completed"] = code not in (124, 137, 143)
         return ExecResult(stdout=stdout.decode("utf-8", "replace"),
                           stderr=stderr.decode("utf-8", "replace"), return_code=code)
 
@@ -739,15 +879,68 @@ class AnyEvalK8sEnvironment(BaseEnvironment):
         if code:
             raise RuntimeError(f"Tar upload failed (exit {code})")
 
+    async def _record_artifact_delivery(self, data, target_dir, *, file_name=None):
+        """Hash the upload payload and an independent read-back of the delivered tree.
+
+        Tar headers vary across hosts. Each regular file is hashed over its exact
+        bytes; directory/link records use a canonical inventory of their semantics.
+        Neither bytes nor path contents are logged.
+        """
+        def inventory(raw):
+            entries = {}
+            with tarfile.open(fileobj=io.BytesIO(raw), mode="r:*") as archive:
+                for member in archive.getmembers():
+                    name = str(PurePosixPath(member.name))
+                    if name.startswith("/") or ".." in PurePosixPath(name).parts:
+                        raise AnyEvalInfrastructureError("Unsafe artifact archive path")
+                    if member.isfile() or member.islnk():
+                        stream = archive.extractfile(member)
+                        entries[name] = hashlib.sha256(stream.read()).hexdigest()
+                    elif member.isdir():
+                        entries[name] = hashlib.sha256(b"directory").hexdigest()
+                    elif member.issym():
+                        entries[name] = hashlib.sha256(b"symlink\0" + member.linkname.encode()).hexdigest()
+                    else:
+                        raise AnyEvalInfrastructureError("Unsupported artifact type")
+            # Root directory headers need not be present on both sides.
+            entries.pop(".", None)
+            return entries
+        source = inventory(data)
+        command = (["tar", "cf", "-", "-C", target_dir, "--", file_name] if file_name
+                   else ["tar", "cf", "-", "-C", target_dir, "."])
+        delivered = inventory(await self._download(command))
+        pod = await self._call(self._core.read_namespaced_pod, self.pod_name,
+                               self.namespace, _request_timeout=20)
+        path = self.trial_paths.trial_dir / "anyeval" / f"{self.pod_name}.json"
+        facts = json.loads(path.read_text())
+        records = facts.get("verified_artifacts", [])
+        # One digest binds the complete inventory including empty directories and links.
+        def tree_hash(value):
+            return hashlib.sha256(json.dumps(value, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
+        records.append({"source_sha256": tree_hash(source), "delivered_sha256": tree_hash(delivered),
+                        "verifier_pod_uid": pod.metadata.uid, "kind": "tree_inventory_v1"})
+        for name, digest in sorted(source.items()):
+            records.append({"source_sha256": digest, "delivered_sha256": delivered.get(name),
+                            "verifier_pod_uid": pod.metadata.uid, "kind": "entry_bytes_v1"})
+        self._save_facts({"verified_artifacts": records})
+        if source != delivered or pod.metadata.uid != facts["created_uid"]:
+            raise AnyEvalInfrastructureError("Verifier artifact delivery mismatch")
+
     async def upload_file(self, source_path, target_path):
         target = PurePosixPath(target_path)
         buffer = io.BytesIO()
         with tarfile.open(fileobj=buffer, mode="w") as archive:
             archive.add(Path(source_path), arcname=target.name)
-        await self._upload(buffer.getvalue(), str(target.parent))
+        data = buffer.getvalue()
+        await self._upload(data, str(target.parent))
+        if self._artifact_transfer:
+            await self._record_artifact_delivery(data, str(target.parent), file_name=target.name)
 
     async def upload_dir(self, source_dir, target_dir):
-        await self._upload(pack_dir_to_bytes(source_dir).getvalue(), str(target_dir))
+        data = pack_dir_to_bytes(source_dir).getvalue()
+        await self._upload(data, str(target_dir))
+        if self._artifact_transfer:
+            await self._record_artifact_delivery(data, str(target_dir))
         if self._verifier_guard is not None and str(target_dir).rstrip("/") == "/tests":
             self._verifier_guard["pending_uploads"].discard(Path(source_dir))
 
@@ -796,5 +989,7 @@ class AnyEvalK8sEnvironment(BaseEnvironment):
 
 # Harbor has no before-verifier/download-recovery hook in 0.22. Scope the wrapper
 # to this adapter; leave all other environments and verification commands intact.
-from .verifier import install_verifier_hook
+from .verifier import install_verifier_hook, install_artifact_hook
 install_verifier_hook(AnyEvalK8sEnvironment)
+
+install_artifact_hook(AnyEvalK8sEnvironment)

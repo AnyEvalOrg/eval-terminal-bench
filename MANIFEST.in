@@ -1,2 +1,4 @@
 prune terminal_bench_anyeval/data/terminal-bench-2-1
 prune terminal_bench_anyeval/data/terminal-bench-4-0
+
+include docs/contract.md

@@ -19,7 +19,7 @@ def spec(synthetic_data):
             "agent_kwargs": agent_kwargs({"only": ["openai"], "order": ["openai"], "allow_fallbacks": False}),
             "env": {"ANYEVAL_TB_EGRESS_PROXY": "1"}, "namespace": "anyeval-sandbox",
             "kubeconfig": "/synthetic/kubeconfig", "timeouts": {"agent_sec": 120, "verifier_sec": 30},
-            "attempt": 1, "run_id": "synthetic-run"}
+            "attempt": 1, "run_id": "synthetic-run", "trial_id": "authorized-trial"}
 
 
 @pytest.fixture
