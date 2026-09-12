@@ -1275,9 +1275,9 @@
         "write-compressor": "sha256:a30bb03dc87b6cbe6db9df7451b2595c1d1ac0e15ffa9f85c7b87952a7b6794a"
       },
       "registry_version_provenance": {
-        "method": "Registry dataset_version content hash resolved live through Harbor 0.22.0's PackageDatasetClient on 2026-09-12; matches the exported tasks' manifest.",
+        "method": "Registry dataset_version content hash and id resolved live through Harbor 0.22.0's PackageDatasetClient on 2026-09-12, as supplied for Round B9.",
         "source": "/private/tmp/claude-501/-Users-jperla-josh/7b8624b6-7520-461a-875c-e13899ff3a86/scratchpad/tb/2.1.0-dl/terminal-bench-2-1",
-        "verification": "All retained files and excluded task.toml hashes match this manifest. Registry API DNS failed; export has no cached dataset metadata and Harbor cache was absent. Registry existence/id/tag not independently confirmed.",
+        "verification": "The live registry identity is pinned separately from the preserved export task_content_hashes; a digest of that local task inventory is not the registry content hash.",
         "task_content_hashes": {
           "adaptive-rejection-sampler": "bcaa2399985cd57666018025846289ab25e193ae0dd8fb7f0ffab2410c24d4de",
           "bn-fit-modify": "b5f9644970c17ad9ddb46b7266f7bcd87c761d77d7e6f55d7cfe7284d5ff66e9",
@@ -1369,10 +1369,11 @@
           "winning-avg-corewars": "a9f2c630fb7d656e96f3a42ade600a8abcb500631d153d62d5ceb2df073bc256",
           "write-compressor": "d9ddd9a8e925e2c566b37b2492cbf995afecefe58874e4043ef78d7f3c892c7e"
         }
-      }
+      },
+      "dataset_version_id": "f92eea12-ff70-4d30-ace0-003abf294998"
     },
     "terminal-bench@4.0.0": {
-      "registry_version": "4.0.0",
+      "registry_version": "sha256:39d9f44b40420cde8fdcc087579c0d72a7e14fa3656d603c3f0d22fb35e27732",
       "registry_digest": "sha256:f9c95ac9be28c0005c53e2445c52dab42e3f3f94133225a2efbe47dd1c3bff3e",
       "registry_digest_kind": "downloaded-task-inventory-sha256",
       "upstream_registry_digest": null,
@@ -2490,6 +2491,10 @@
         "vpp-loss-divergence": "sha256:869dddaf272be8ef9f1e65bb64133ecbcef0677e9f1c5c0b5dede72a423e6e79",
         "wal-recovery-ordering": "sha256:f7fd4f32ceb1d607caacb413bff2f98378308be247f31be06b001c4119d24cad",
         "wdm-design": "sha256:d44ec93ba09eb7ffff2564ed3df3795d91c3b6aa689ea22b515e0118d0e01e0b"
+      },
+      "dataset_version_id": "1922072f-a433-429a-8929-350d5e1bcf02",
+      "registry_version_provenance": {
+        "method": "Registry dataset_version content hash and id resolved live through Harbor 0.22.0's PackageDatasetClient on 2026-09-12, as supplied for Round B9."
       }
     }
   },

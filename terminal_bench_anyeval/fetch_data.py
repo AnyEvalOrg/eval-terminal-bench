@@ -15,8 +15,8 @@ from urllib.parse import quote, urlencode
 from urllib.request import Request, urlopen
 
 from .eligibility import (
-    DATASETS, REGISTRY_VERSIONS, FETCH_HINT, data_root, eligibility, file_inventory, manifest,
-    retained_file, verify_files,
+    DATASETS, REGISTRY_VERSIONS, REGISTRY_VERSION_IDS, FETCH_HINT, data_root,
+    eligibility, file_inventory, manifest, retained_file, verify_files,
 )
 
 
@@ -25,7 +25,8 @@ def pinned_dataset(dataset: str) -> tuple[str, str, str]:
     name, separator, requested = dataset.partition("@")
     for key, version in REGISTRY_VERSIONS.items():
         if key.split("@", 1)[0] == name:
-            if not version or version == "latest" or (separator and requested != version):
+            if (not version.startswith("sha256:")
+                    or (separator and dataset != key and requested != version)):
                 raise ValueError(f"Requested registry version is not pinned: {dataset}")
             return key, name, version
     raise ValueError(f"Unknown pinned dataset: {dataset}")
@@ -33,15 +34,22 @@ def pinned_dataset(dataset: str) -> tuple[str, str, str]:
 
 def download_dataset(dataset: str, destination: Path) -> Path:
     """Harbor 0.22 export layout is <output-dir>/<short-name>/<task-name>."""
-    _, name, version = pinned_dataset(dataset)
+    dataset, name, version = pinned_dataset(dataset)
     reference = f"terminal-bench/{name}@{version}"
     # Prefer the CLI from this interpreter's environment over another PATH install.
     executable = Path(sys.executable).parent / "harbor"
     command = str(executable) if executable.is_file() else shutil.which("harbor")
     if command is None:
         return download_registry_dataset(dataset, destination)
+    # Harbor export writes no identity sidecar. Run its CLI with a metadata
+    # guard inside the same process, before that metadata is used to download.
+    interpreter = Path(command).parent / "python"
+    if not interpreter.is_file():
+        return download_registry_dataset(dataset, destination)
     result = subprocess.run(
-        [command, "dataset", "download", reference, "--export", "--output-dir", str(destination)],
+        [str(interpreter), str(Path(__file__).with_name("_harbor_fetch.py")),
+         version, REGISTRY_VERSION_IDS[dataset], command,
+         "dataset", "download", reference, "--export", "--output-dir", str(destination)],
         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
     )
     if result.returncode:
@@ -87,25 +95,16 @@ def download_registry_dataset(dataset: str, destination: Path) -> Path:
         "package.name": "eq." + name,
         "package.type": "eq.dataset", "package.org.name": "eq.terminal-bench",
     }
-    if version.startswith("sha256:"):
-        versions = registry_rows("dataset_version", {
-            **query,
-            "select": "id,content_hash,package:package_id!inner(name,org:org_id!inner(name))",
-            "content_hash": "eq." + version.removeprefix("sha256:"), "order": "id",
-        })
-        if len(versions) != 1 or versions[0].get("content_hash") != version.removeprefix("sha256:"):
-            raise ValueError(f"Registry version does not match pinned version: {dataset}")
-        version_id = versions[0].get("id")
-    else:
-        versions = registry_rows("dataset_version_tag", {
-            **query,
-            "select": "dataset_version:dataset_version_id(id),package:package_id!inner(name,org:org_id!inner(name))",
-            "tag": "eq." + version, "order": "tag",
-        })
-        version_id = ((versions[0].get("dataset_version") or {}).get("id")
-                      if len(versions) == 1 else None)
-    if not version_id:
-        raise ValueError(f"Registry dataset unavailable: {dataset}")
+    versions = registry_rows("dataset_version", {
+        **query,
+        "select": "id,content_hash,package:package_id!inner(name,org:org_id!inner(name))",
+        "content_hash": "eq." + version.removeprefix("sha256:"), "order": "id",
+    })
+    version_id = REGISTRY_VERSION_IDS[dataset]
+    if (len(versions) != 1 or not isinstance(versions[0], dict)
+            or versions[0].get("content_hash") != version.removeprefix("sha256:")
+            or versions[0].get("id") != version_id):
+        raise ValueError(f"Registry version does not match pinned version: {dataset}")
     rows = registry_rows("dataset_version_task", {
         "select": "task_version_id,task_version:task_version_id(archive_path,package:package_id(name))",
         "dataset_version_id": "eq." + version_id,

@@ -12,11 +12,15 @@ DATASETS = {
     "terminal-bench-2-1": ("2.1.0", "2.1", "terminal-bench-2-1"),
     "terminal-bench@4.0.0": ("4.0.0", "4.0", "terminal-bench-4-0"),
 }
-# Harbor content reference reconstructed from the complete 89-task 2.1 export.
+# Harbor package identities resolved through PackageDatasetClient.
 # See data/manifest.json for provenance; this is not the local inventory digest.
 REGISTRY_VERSIONS = {
     "terminal-bench-2-1": "sha256:7d7bdc1cbedad549fc1140404bd4dc45e5fd0ea7c4186773687d177ad3a0699a",
-    "terminal-bench@4.0.0": "4.0.0",
+    "terminal-bench@4.0.0": "sha256:39d9f44b40420cde8fdcc087579c0d72a7e14fa3656d603c3f0d22fb35e27732",
+}
+REGISTRY_VERSION_IDS = {
+    "terminal-bench-2-1": "f92eea12-ff70-4d30-ace0-003abf294998",
+    "terminal-bench@4.0.0": "1922072f-a433-429a-8929-350d5e1bcf02",
 }
 COMPOSE_NAMES = {"docker-compose.yaml", "docker-compose.yml", "compose.yaml", "compose.yml"}
 MAX_STORAGE_MB = 10240
@@ -81,6 +85,7 @@ def scan(root: Path, dataset: str) -> dict:
             included.append(path.parent.name)
     return {"version": 1, "dataset": dataset, "dataset_version": version,
             "registry_version": REGISTRY_VERSIONS[dataset],
+            "dataset_version_id": REGISTRY_VERSION_IDS[dataset],
             "total": len(paths), "included": included, "excluded": excluded}
 
 

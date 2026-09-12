@@ -164,7 +164,7 @@ def test_data_root_override_and_readonly_fallback(tmp_path, monkeypatch):
 
 @pytest.mark.parametrize('dataset,reference,folder', [
     ('terminal-bench-2-1', 'terminal-bench/terminal-bench-2-1@sha256:7d7bdc1cbedad549fc1140404bd4dc45e5fd0ea7c4186773687d177ad3a0699a', 'terminal-bench-2-1'),
-    ('terminal-bench@4.0.0', 'terminal-bench/terminal-bench@4.0.0', 'terminal-bench'),
+    ('terminal-bench@4.0.0', 'terminal-bench/terminal-bench@sha256:39d9f44b40420cde8fdcc087579c0d72a7e14fa3656d603c3f0d22fb35e27732', 'terminal-bench'),
 ])
 def test_download_invokes_pinned_harbor_export(monkeypatch, tmp_path, dataset, reference, folder):
     calls = []
@@ -176,8 +176,8 @@ def test_download_invokes_pinned_harbor_export(monkeypatch, tmp_path, dataset, r
     monkeypatch.setattr(fetch.subprocess, 'run', run)
     assert fetch.download_dataset(dataset, tmp_path) == tmp_path / folder
     command, kwargs = calls[0]
-    assert Path(command[0]).name == 'harbor'
-    assert command[1:] == ['dataset', 'download', reference, '--export', '--output-dir', str(tmp_path)]
+    assert Path(command[4]).name == 'harbor'
+    assert command[5:] == ['dataset', 'download', reference, '--export', '--output-dir', str(tmp_path)]
     assert kwargs == {'stdout': subprocess.DEVNULL, 'stderr': subprocess.DEVNULL}
 
 

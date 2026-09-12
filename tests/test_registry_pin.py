@@ -33,7 +33,7 @@ def test_cli_accepts_explicit_content_reference(monkeypatch, tmp_path):
                         calls.append(args) or subprocess.CompletedProcess(args, 0))
     monkeypatch.setattr(fetch.shutil, "which", lambda name: "/fake/harbor")
     assert fetch.download_dataset("terminal-bench-2-1@" + version, tmp_path) == tmp_path / "terminal-bench-2-1"
-    assert calls[0][3] == "terminal-bench/terminal-bench-2-1@" + version
+    assert calls[0][7] == "terminal-bench/terminal-bench-2-1@" + version
 
 
 def test_http_binds_content_reference_and_resolved_id(monkeypatch, tmp_path):
@@ -48,9 +48,9 @@ def test_http_binds_content_reference_and_resolved_id(monkeypatch, tmp_path):
             assert query["package.org.name"] == "eq.terminal-bench"
             assert query["package.type"] == "eq.dataset"
             assert "tag" not in query
-            return [{"id": "pinned-id", "content_hash": digest}]
+            return [{"id": "f92eea12-ff70-4d30-ace0-003abf294998", "content_hash": digest}]
         assert table == "dataset_version_task"
-        assert query["dataset_version_id"] == "eq.pinned-id"
+        assert query["dataset_version_id"] == "eq.f92eea12-ff70-4d30-ace0-003abf294998"
         return []
     monkeypatch.setattr(fetch, "registry_rows", rows)
     monkeypatch.setattr(fetch, "eligibility", lambda key: {"included": [], "excluded": []})
@@ -81,5 +81,5 @@ def test_manifest_and_eligibility_record_pinned_identity():
     record = records["terminal-bench-2-1"]
     hashes = record["registry_version_provenance"]["task_content_hashes"]
     assert len(hashes) == eligibility("terminal-bench-2-1")["total"] == 89
-    digest = hashlib.sha256(",".join(sorted(hashes.values())).encode()).hexdigest()
-    assert record["registry_version"] == "sha256:" + digest
+    # Registry content hashes include more than the local task inventory.
+    assert record["registry_version"] == "sha256:7d7bdc1cbedad549fc1140404bd4dc45e5fd0ea7c4186773687d177ad3a0699a"
