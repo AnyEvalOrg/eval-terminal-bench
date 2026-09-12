@@ -114,16 +114,23 @@ when fetched into the checkout.
 
 `python -m terminal_bench_anyeval.fetch_data` (also `python scripts/fetch_data.py`)
 prefers an available `harbor dataset download --export` CLI for
-`terminal-bench/terminal-bench-2-1` and
+`terminal-bench/terminal-bench-2-1@sha256:7d7bdc1cbedad549fc1140404bd4dc45e5fd0ea7c4186773687d177ad3a0699a` and
 `terminal-bench/terminal-bench@4.0.0`. With no CLI, it uses standard-library
 HTTP requests to Harbor's public package registry at
-`https://ofhuhcpkvzjlejydnvyd.supabase.co`: `GET /rest/v1/dataset_version_tag`
-resolves `latest` for 2.1 or tag `4.0.0`; `GET /rest/v1/dataset_version_task`
+`https://ofhuhcpkvzjlejydnvyd.supabase.co`: `GET /rest/v1/dataset_version`
+resolves the pinned 2.1 content hash; `GET /rest/v1/dataset_version_tag`
+resolves tag `4.0.0`; `GET /rest/v1/dataset_version_task`
 lists versioned task archives; `GET /storage/v1/object/packages/<archive_path>`
 downloads each eligible task archive. The REST lists are paginated. These are
 Harbor 0.22.0's package registry endpoints, using its published anonymous API
 key; no Harbor Python import, SDK, login, or git executable is needed. See the
 [upstream dataset documentation](https://www.harborframework.com/docs/datasets).
+Both download paths reject explicit versions other than the pinned reference,
+including `latest`. The 2.1 content reference was reconstructed with Harbor's
+hashing algorithm from the full earlier export, whose retained bytes match the
+manifest. No cached dataset metadata was available and registry DNS failed;
+the upstream registry ID/tag and existence of that digest remain unconfirmed.
+The manifest records the derivation and all 89 task content hashes.
 Downloads and pruned results are staged
 in temporary directories. Only eligible tasks' `task.toml`, `instruction.md`,
 and `tests/**` are installed; **solutions and environment trees are never

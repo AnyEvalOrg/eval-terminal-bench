@@ -4,7 +4,7 @@ import json
 from pathlib import Path
 import shutil
 
-from terminal_bench_anyeval.eligibility import DATA, DATASETS, canonical_digest, hash_file, scan, task_hashes
+from terminal_bench_anyeval.eligibility import DATA, DATASETS, REGISTRY_VERSIONS, canonical_digest, hash_file, scan, task_hashes
 
 
 def environment_tree_hash(root):
@@ -68,7 +68,7 @@ def main():
                     "dataset": dataset, "task_hashes": tasks,
                     "excluded_tasks": excluded, "dropped_environment_trees": dropped}
         manifest["datasets"][dataset] = {
-            "registry_version": version, "registry_digest": canonical_digest(registry),
+            "registry_version": REGISTRY_VERSIONS[dataset], "registry_digest": canonical_digest(registry),
             "registry_digest_kind": "downloaded-task-inventory-sha256",
             "upstream_registry_digest": None,
             "upstream_registry_verified": False,

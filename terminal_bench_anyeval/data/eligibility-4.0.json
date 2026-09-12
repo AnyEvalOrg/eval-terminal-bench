@@ -210,5 +210,6 @@
         "storage>10GiB: verifier requests 15360 MiB"
       ]
     }
-  ]
+  ],
+  "registry_version": "4.0.0"
 }

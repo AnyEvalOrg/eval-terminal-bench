@@ -94,5 +94,6 @@
     "winning-avg-corewars",
     "write-compressor"
   ],
-  "excluded": []
+  "excluded": [],
+  "registry_version": "sha256:7d7bdc1cbedad549fc1140404bd4dc45e5fd0ea7c4186773687d177ad3a0699a"
 }

@@ -47,8 +47,9 @@ interpreter or on `PATH`, it is used as a subprocess. Otherwise the fetcher uses
 plain HTTP through `urllib.request` against
 `https://ofhuhcpkvzjlejydnvyd.supabase.co`:
 
-- `GET /rest/v1/dataset_version_tag`: resolve the `terminal-bench` organization's
-  `terminal-bench-2-1@latest` or `terminal-bench@4.0.0` dataset version.
+- `GET /rest/v1/dataset_version`: resolve the `terminal-bench` organization's
+  `terminal-bench-2-1` by the fixed `content_hash` recorded in `manifest.json`.
+- `GET /rest/v1/dataset_version_tag`: resolve `terminal-bench@4.0.0`.
 - `GET /rest/v1/dataset_version_task`: enumerate its task versions and archive paths.
 - `GET /storage/v1/object/packages/<archive_path>`: download gzip task archives.
 
@@ -59,6 +60,9 @@ README verification before pruning, and exact retained file-set checks run
 before installation. Registry metadata does not replace committed provenance.
 Only retrieval needs registry access; verification is offline and fails the
 build on any mismatch.
+Both fetch paths refuse explicit `latest` or any other unpinned version. The 2.1
+digest was reconstructed from the original full export; upstream registry
+confirmation was unavailable (see the manifest's version provenance).
 
 For local catalogue use and a separate trial environment:
 

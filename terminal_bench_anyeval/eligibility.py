@@ -12,6 +12,12 @@ DATASETS = {
     "terminal-bench-2-1": ("2.1.0", "2.1", "terminal-bench-2-1"),
     "terminal-bench@4.0.0": ("4.0.0", "4.0", "terminal-bench-4-0"),
 }
+# Harbor content reference reconstructed from the complete 89-task 2.1 export.
+# See data/manifest.json for provenance; this is not the local inventory digest.
+REGISTRY_VERSIONS = {
+    "terminal-bench-2-1": "sha256:7d7bdc1cbedad549fc1140404bd4dc45e5fd0ea7c4186773687d177ad3a0699a",
+    "terminal-bench@4.0.0": "4.0.0",
+}
 COMPOSE_NAMES = {"docker-compose.yaml", "docker-compose.yml", "compose.yaml", "compose.yml"}
 MAX_STORAGE_MB = 10240
 FETCH_HINT = "run python -m terminal_bench_anyeval.fetch_data"
@@ -74,6 +80,7 @@ def scan(root: Path, dataset: str) -> dict:
         else:
             included.append(path.parent.name)
     return {"version": 1, "dataset": dataset, "dataset_version": version,
+            "registry_version": REGISTRY_VERSIONS[dataset],
             "total": len(paths), "included": included, "excluded": excluded}
 
 

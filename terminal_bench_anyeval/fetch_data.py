@@ -15,17 +15,26 @@ from urllib.parse import quote, urlencode
 from urllib.request import Request, urlopen
 
 from .eligibility import (
-    DATASETS, FETCH_HINT, data_root, eligibility, file_inventory, manifest,
+    DATASETS, REGISTRY_VERSIONS, FETCH_HINT, data_root, eligibility, file_inventory, manifest,
     retained_file, verify_files,
 )
 
 
+def pinned_dataset(dataset: str) -> tuple[str, str, str]:
+    """Resolve local catalogue aliases, rejecting every explicit unpinned ref."""
+    name, separator, requested = dataset.partition("@")
+    for key, version in REGISTRY_VERSIONS.items():
+        if key.split("@", 1)[0] == name:
+            if not version or version == "latest" or (separator and requested != version):
+                raise ValueError(f"Requested registry version is not pinned: {dataset}")
+            return key, name, version
+    raise ValueError(f"Unknown pinned dataset: {dataset}")
+
+
 def download_dataset(dataset: str, destination: Path) -> Path:
     """Harbor 0.22 export layout is <output-dir>/<short-name>/<task-name>."""
-    name = dataset.split("@", 1)[0]
-    # 2.1 has its own named dataset; 4.0 uses a versioned registry handle.
-    # The committed file hashes pin bytes even if the named dataset drifts.
-    reference = f"terminal-bench/{dataset}"
+    _, name, version = pinned_dataset(dataset)
+    reference = f"terminal-bench/{name}@{version}"
     # Prefer the CLI from this interpreter's environment over another PATH install.
     executable = Path(sys.executable).parent / "harbor"
     command = str(executable) if executable.is_file() else shutil.which("harbor")
@@ -73,18 +82,33 @@ def download_registry_dataset(dataset: str, destination: Path) -> Path:
     The trusted local manifest, not registry metadata, authenticates task bytes.
     See docker/worker-snippet.md for endpoints and interpreter setup.
     """
-    name, _, tag = dataset.partition("@")
-    versions = registry_rows("dataset_version_tag", {
-        "select": "dataset_version:dataset_version_id(id),package:package_id!inner(name,org:org_id!inner(name))",
-        "tag": "eq." + (tag or "latest"), "package.name": "eq." + name,
+    dataset, name, version = pinned_dataset(dataset)
+    query = {
+        "package.name": "eq." + name,
         "package.type": "eq.dataset", "package.org.name": "eq.terminal-bench",
-        "order": "tag",
-    })
-    if len(versions) != 1 or not versions[0].get("dataset_version"):
+    }
+    if version.startswith("sha256:"):
+        versions = registry_rows("dataset_version", {
+            **query,
+            "select": "id,content_hash,package:package_id!inner(name,org:org_id!inner(name))",
+            "content_hash": "eq." + version.removeprefix("sha256:"), "order": "id",
+        })
+        if len(versions) != 1 or versions[0].get("content_hash") != version.removeprefix("sha256:"):
+            raise ValueError(f"Registry version does not match pinned version: {dataset}")
+        version_id = versions[0].get("id")
+    else:
+        versions = registry_rows("dataset_version_tag", {
+            **query,
+            "select": "dataset_version:dataset_version_id(id),package:package_id!inner(name,org:org_id!inner(name))",
+            "tag": "eq." + version, "order": "tag",
+        })
+        version_id = ((versions[0].get("dataset_version") or {}).get("id")
+                      if len(versions) == 1 else None)
+    if not version_id:
         raise ValueError(f"Registry dataset unavailable: {dataset}")
     rows = registry_rows("dataset_version_task", {
         "select": "task_version_id,task_version:task_version_id(archive_path,package:package_id(name))",
-        "dataset_version_id": "eq." + versions[0]["dataset_version"]["id"],
+        "dataset_version_id": "eq." + version_id,
         "order": "task_version_id",
     })
     report = eligibility(dataset)

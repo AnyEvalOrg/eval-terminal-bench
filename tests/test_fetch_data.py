@@ -163,7 +163,7 @@ def test_data_root_override_and_readonly_fallback(tmp_path, monkeypatch):
 
 
 @pytest.mark.parametrize('dataset,reference,folder', [
-    ('terminal-bench-2-1', 'terminal-bench/terminal-bench-2-1', 'terminal-bench-2-1'),
+    ('terminal-bench-2-1', 'terminal-bench/terminal-bench-2-1@sha256:7d7bdc1cbedad549fc1140404bd4dc45e5fd0ea7c4186773687d177ad3a0699a', 'terminal-bench-2-1'),
     ('terminal-bench@4.0.0', 'terminal-bench/terminal-bench@4.0.0', 'terminal-bench'),
 ])
 def test_download_invokes_pinned_harbor_export(monkeypatch, tmp_path, dataset, reference, folder):

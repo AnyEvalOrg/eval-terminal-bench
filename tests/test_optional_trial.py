@@ -46,9 +46,9 @@ def test_http_fallback_verifies_before_install(tmp_path, monkeypatch, fault):
         assert timeout == 120
         assert request.get_header("Apikey") == fetch.REGISTRY_PUBLIC_KEY
         query = parse_qs(parsed.query)
-        if parsed.path == "/rest/v1/dataset_version_tag":
-            assert query["tag"] == ["eq.latest"]
-            body = json.dumps([{"dataset_version": {"id": "dataset-id"}}]).encode()
+        if parsed.path == '/rest/v1/dataset_version':
+            assert query['content_hash'] == ['eq.7d7bdc1cbedad549fc1140404bd4dc45e5fd0ea7c4186773687d177ad3a0699a']
+            body = json.dumps([{'id': 'dataset-id', 'content_hash': '7d7bdc1cbedad549fc1140404bd4dc45e5fd0ea7c4186773687d177ad3a0699a'}]).encode()
         elif parsed.path == "/rest/v1/dataset_version_task":
             assert query["dataset_version_id"] == ["eq.dataset-id"]
             body = json.dumps([{"task_version": {
