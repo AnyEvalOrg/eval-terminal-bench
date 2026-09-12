@@ -41,11 +41,14 @@ def download_dataset(dataset: str, destination: Path) -> Path:
     command = str(executable) if executable.is_file() else shutil.which("harbor")
     if command is None:
         return download_registry_dataset(dataset, destination)
-    # Harbor export writes no identity sidecar. Run its CLI with a metadata
-    # guard inside the same process, before that metadata is used to download.
+    # Harbor export writes no identity sidecar. Keep a second metadata check
+    # inside its process to authenticate the identity it actually consumes.
     interpreter = Path(command).parent / "python"
     if not interpreter.is_file():
         return download_registry_dataset(dataset, destination)
+    # Harbor resolves and enumerates tasks inside its metadata lookup, so
+    # authenticate the registry mapping before invoking the CLI at all.
+    resolve_registry_identity(dataset)
     result = subprocess.run(
         [str(interpreter), str(Path(__file__).with_name("_harbor_fetch.py")),
          version, REGISTRY_VERSION_IDS[dataset], command,
@@ -84,12 +87,8 @@ def registry_rows(table: str, query: dict) -> list[dict]:
             return rows
 
 
-def download_registry_dataset(dataset: str, destination: Path) -> Path:
-    """Read public PostgREST metadata and gzip task archives using only HTTP.
-
-    The trusted local manifest, not registry metadata, authenticates task bytes.
-    See docker/worker-snippet.md for endpoints and interpreter setup.
-    """
+def resolve_registry_identity(dataset: str) -> str:
+    """Check the registry's content-hash mapping before enumerating any tasks."""
     dataset, name, version = pinned_dataset(dataset)
     query = {
         "package.name": "eq." + name,
@@ -105,6 +104,17 @@ def download_registry_dataset(dataset: str, destination: Path) -> Path:
             or versions[0].get("content_hash") != version.removeprefix("sha256:")
             or versions[0].get("id") != version_id):
         raise ValueError(f"Registry version does not match pinned version: {dataset}")
+    return version_id
+
+
+def download_registry_dataset(dataset: str, destination: Path) -> Path:
+    """Read public PostgREST metadata and gzip task archives using only HTTP.
+
+    The trusted local manifest, not registry metadata, authenticates task bytes.
+    See docker/worker-snippet.md for endpoints and interpreter setup.
+    """
+    dataset, name, version = pinned_dataset(dataset)
+    version_id = resolve_registry_identity(dataset)
     rows = registry_rows("dataset_version_task", {
         "select": "task_version_id,task_version:task_version_id(archive_path,package:package_id(name))",
         "dataset_version_id": "eq." + version_id,

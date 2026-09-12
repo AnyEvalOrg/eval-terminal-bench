@@ -26,7 +26,7 @@ def test_requested_version_must_be_pinned(monkeypatch, tmp_path, downloader, ref
     assert not destination.exists()
 
 
-def test_cli_accepts_explicit_content_reference(monkeypatch, tmp_path):
+def test_cli_accepts_explicit_content_reference(pinned_registry_identity, monkeypatch, tmp_path):
     version = REGISTRY_VERSIONS["terminal-bench-2-1"]
     calls = []
     monkeypatch.setattr(fetch.subprocess, "run", lambda args, **kwargs:

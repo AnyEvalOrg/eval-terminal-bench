@@ -79,7 +79,7 @@ def test_b9_http_identity_before_enumeration_or_writes(
 
 @pytest.mark.parametrize('dataset,name,version_id,digest', PINS)
 @pytest.mark.parametrize('identity', ['match', 'id', 'hash', 'both', 'missing_id', 'missing_hash'])
-def test_b9_cli_consumed_metadata_is_guarded(
+def test_b9_cli_consumed_metadata_is_guarded(pinned_registry_identity, 
     dataset, name, version_id, digest, identity, monkeypatch, tmp_path,
 ):
     # Use Harbor's real CLI, PackageDatasetClient metadata construction, and
