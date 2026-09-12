@@ -7,9 +7,13 @@ import asyncio
 from .verifier_health import _SETUP_FAILURE
 from functools import wraps
 
-from harbor.models.trial.paths import EnvironmentPaths
-from harbor.models.verifier.result import VerifierResult
-from harbor.verifier.verifier import DownloadVerifierDirError, RewardFileNotFoundError, Verifier
+from ._optional import trial_imports
+
+with trial_imports():
+    from harbor.models.trial.paths import EnvironmentPaths
+    from harbor.models.verifier.result import VerifierResult
+    from harbor.verifier.verifier import DownloadVerifierDirError, RewardFileNotFoundError, Verifier
+
 
 
 async def recover_download(verifier):

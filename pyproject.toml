@@ -9,10 +9,11 @@ description = "Terminal-Bench 2.1 and 4.0 eligible tasks for AnyEval's Harbor ru
 readme = "README.md"
 requires-python = ">=3.12"
 license = {text = "Apache-2.0"}
-dependencies = ["harbor==0.22.0"]
+dependencies = ["PyYAML>=6"]
 
 [project.optional-dependencies]
-inspect = ["inspect_ai==0.3.260", "kubernetes==36.0.3"]
+inspect = ["inspect_ai==0.3.260"]
+trial = ["harbor==0.22.0", "kubernetes==36.0.3"]
 test = ["pytest>=8", "PyYAML>=6", "setuptools>=68", "wheel"]
 
 [project.entry-points.inspect_ai]

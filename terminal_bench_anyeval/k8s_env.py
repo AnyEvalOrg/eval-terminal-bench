@@ -27,13 +27,16 @@ from pathlib import Path, PurePosixPath
 
 from .iron_proxy import allowlist_hash, proxy_env, proxy_egress, DENY_CIDRS, load_allowlist, source_hash
 
-from harbor.environments.base import BaseEnvironment, ExecResult
-from harbor.environments.capabilities import (
-    EnvironmentCapabilities, EnvironmentResourceCapabilities,
-)
+from ._optional import trial_imports
+
+with trial_imports():
+    from harbor.environments.base import BaseEnvironment, ExecResult
+    from harbor.environments.capabilities import (
+        EnvironmentCapabilities, EnvironmentResourceCapabilities,
+    )
+    from harbor.models.task.config import NetworkMode
+    from harbor.models.trial.config import ResourceMode
 from .bounded_io import TransferLimitError, LimitedWriter, as_file, members, inventory
-from harbor.models.task.config import NetworkMode
-from harbor.models.trial.config import ResourceMode
 
 
 COMPOSE_NAMES = ("docker-compose.yaml", "docker-compose.yml", "compose.yaml", "compose.yml")
@@ -220,7 +223,7 @@ class AnyEvalK8sEnvironment(BaseEnvironment):
         try:
             from kubernetes import client, config
         except ImportError as exc:
-            raise RuntimeError("Install kubernetes in Harbor's venv: python -m pip install kubernetes") from exc
+            raise RuntimeError("Install eval-terminal-bench[trial] in Harbor's venv") from exc
         kubeconfig = os.environ.get("KUBECONFIG")
         if not kubeconfig:
             raise ValueError("KUBECONFIG must point to the supplied AnyEval kubeconfig")

@@ -91,3 +91,19 @@ def synthetic_data(mini_registry):
     fetch = importlib.import_module('terminal_bench_anyeval.fetch_data')
     fetch.fetch_data()
     return mini_registry
+
+
+@pytest.fixture
+def pinned_registry_identity(monkeypatch):
+    """Allow CLI tests to reach Harbor after a valid registry preflight."""
+    from terminal_bench_anyeval import fetch_data as fetch
+
+    def rows(table, query):
+        assert table == "dataset_version"
+        for dataset, reference in fetch.REGISTRY_VERSIONS.items():
+            digest = reference.removeprefix("sha256:")
+            if query["content_hash"] == "eq." + digest:
+                return [{"id": fetch.REGISTRY_VERSION_IDS[dataset], "content_hash": digest}]
+        raise AssertionError("Unpinned content-hash lookup")
+
+    monkeypatch.setattr(fetch, "registry_rows", rows)

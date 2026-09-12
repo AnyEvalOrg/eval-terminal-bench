@@ -14,8 +14,27 @@ python -m terminal_bench_anyeval.fetch_data
 python -m terminal_bench_anyeval.fetch_data --verify-only
 ```
 
-The package depends on `harbor==0.22.0`; the extra pins
-`inspect_ai==0.3.260` and `kubernetes==36.0.3`. Inspect discovers
+The base package depends only on `PyYAML>=6`; TOML parsing uses Python 3.12's
+standard-library `tomllib`. The optional `inspect` extra contains only
+`inspect_ai==0.3.260`. The optional `trial` extra contains `harbor==0.22.0` and
+`kubernetes==36.0.3`.
+
+Use two interpreters in the worker image. The app installs the **base wheel**
+alongside its existing Inspect and `openai==3.3.1` dependencies. A separate venv
+at `/opt/anyeval/harbor-venv` installs the same wheel with `[trial]`. Harbor's
+LiteLLM dependency requires `openai<3`, so the app and trial dependencies must
+be resolved in their respective environments. Set
+`ANYEVAL_TB_TRIAL_PYTHON=/opt/anyeval/harbor-venv/bin/python` for the runner; the subprocess spec
+and result contract stay the same. Both interpreters share `ANYEVAL_TB_DATA_DIR`.
+See [exact worker-image commands](docker/worker-snippet.md).
+
+Base imports, data fetching, eligibility, agent settings and contract resources
+work without Inspect or the trial stack. Catalogue entry-point names remain
+available in a base-only install; constructing an Inspect `Task` requires the
+app's Inspect installation or `[inspect]`. Trial module use without its
+dependencies reports an `eval-terminal-bench[trial]` installation hint.
+
+Inspect discovers
 `terminal_bench_anyeval/terminal_bench_2_1` and
 `terminal_bench_anyeval/terminal_bench_4_0`. They contain 89 and 44 samples
 respectively, in the order of each eligibility file's `included` list.
@@ -28,7 +47,7 @@ The runner starts an authenticated worker-local OpenAI-compatible model shim,
 then invokes exactly one child per attempt:
 
 ```sh
-python -m terminal_bench_anyeval.trial --spec /path/spec.json --result /path/result.json
+/opt/anyeval/harbor-venv/bin/python -I -m terminal_bench_anyeval.trial --spec /path/spec.json --result /path/result.json
 ```
 
 The v1 spec carries `dataset` (`terminal-bench-2-1` or `terminal-bench@4.0.0`),
@@ -94,9 +113,25 @@ runtime dataset directories are ignored and excluded from distributions even
 when fetched into the checkout.
 
 `python -m terminal_bench_anyeval.fetch_data` (also `python scripts/fetch_data.py`)
-uses `harbor dataset download --export` for
-`terminal-bench/terminal-bench-2-1` and
-`terminal-bench/terminal-bench@4.0.0`. Downloads and pruned results are staged
+prefers an available `harbor dataset download --export` CLI for
+`terminal-bench/terminal-bench-2-1@sha256:7d7bdc1cbedad549fc1140404bd4dc45e5fd0ea7c4186773687d177ad3a0699a` and
+`terminal-bench/terminal-bench@4.0.0`. With no CLI, it uses standard-library
+HTTP requests to Harbor's public package registry at
+`https://ofhuhcpkvzjlejydnvyd.supabase.co`: `GET /rest/v1/dataset_version`
+resolves the pinned 2.1 content hash; `GET /rest/v1/dataset_version_tag`
+resolves tag `4.0.0`; `GET /rest/v1/dataset_version_task`
+lists versioned task archives; `GET /storage/v1/object/packages/<archive_path>`
+downloads each eligible task archive. The REST lists are paginated. These are
+Harbor 0.22.0's package registry endpoints, using its published anonymous API
+key; no Harbor Python import, SDK, login, or git executable is needed. See the
+[upstream dataset documentation](https://www.harborframework.com/docs/datasets).
+Both download paths reject explicit versions other than the pinned reference,
+including `latest`. The 2.1 content reference was reconstructed with Harbor's
+hashing algorithm from the full earlier export, whose retained bytes match the
+manifest. No cached dataset metadata was available and registry DNS failed;
+the upstream registry ID/tag and existence of that digest remain unconfirmed.
+The manifest records the derivation and all 89 task content hashes.
+Downloads and pruned results are staged
 in temporary directories. Only eligible tasks' `task.toml`, `instruction.md`,
 and `tests/**` are installed; **solutions and environment trees are never
 installed**. The 4.0 exclusions are taken from the committed eligibility list.
@@ -166,7 +201,7 @@ transcript by a compromised environment.
 Run local checks without a cluster or model calls:
 
 ```sh
-python -m pip install -e '.[inspect,test]'
+python -m pip install -e '.[inspect,trial,test]'
 python -m pytest -q
 python -m pip wheel --no-deps --no-build-isolation -w dist .
 ```

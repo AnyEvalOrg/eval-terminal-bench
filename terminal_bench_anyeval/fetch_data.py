@@ -3,36 +3,165 @@ from __future__ import annotations
 
 import argparse
 import fcntl
+import json
 import os
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 import shutil
 import subprocess
 import sys
 import tempfile
+import tarfile
+from urllib.parse import quote, urlencode
+from urllib.request import Request, urlopen
 
 from .eligibility import (
-    DATASETS, FETCH_HINT, data_root, eligibility, file_inventory, manifest,
-    retained_file, verify_files,
+    DATASETS, REGISTRY_VERSIONS, REGISTRY_VERSION_IDS, FETCH_HINT, data_root,
+    eligibility, file_inventory, manifest, retained_file, verify_files,
 )
+
+
+def pinned_dataset(dataset: str) -> tuple[str, str, str]:
+    """Resolve local catalogue aliases, rejecting every explicit unpinned ref."""
+    name, separator, requested = dataset.partition("@")
+    for key, version in REGISTRY_VERSIONS.items():
+        if key.split("@", 1)[0] == name:
+            if (not version.startswith("sha256:")
+                    or (separator and dataset != key and requested != version)):
+                raise ValueError(f"Requested registry version is not pinned: {dataset}")
+            return key, name, version
+    raise ValueError(f"Unknown pinned dataset: {dataset}")
 
 
 def download_dataset(dataset: str, destination: Path) -> Path:
     """Harbor 0.22 export layout is <output-dir>/<short-name>/<task-name>."""
-    name = dataset.split("@", 1)[0]
-    # 2.1 has its own named dataset; 4.0 uses a versioned registry handle.
-    # The committed file hashes pin bytes even if the named dataset drifts.
-    reference = f"terminal-bench/{dataset}"
+    dataset, name, version = pinned_dataset(dataset)
+    reference = f"terminal-bench/{name}@{version}"
     # Prefer the CLI from this interpreter's environment over another PATH install.
     executable = Path(sys.executable).parent / "harbor"
-    command = str(executable) if executable.is_file() else "harbor"
+    command = str(executable) if executable.is_file() else shutil.which("harbor")
+    if command is None:
+        return download_registry_dataset(dataset, destination)
+    # Harbor export writes no identity sidecar. Keep a second metadata check
+    # inside its process to authenticate the identity it actually consumes.
+    interpreter = Path(command).parent / "python"
+    if not interpreter.is_file():
+        return download_registry_dataset(dataset, destination)
+    # Harbor resolves and enumerates tasks inside its metadata lookup, so
+    # authenticate the registry mapping before invoking the CLI at all.
+    resolve_registry_identity(dataset)
     result = subprocess.run(
-        [command, "dataset", "download", reference, "--export", "--output-dir", str(destination)],
+        [str(interpreter), str(Path(__file__).with_name("_harbor_fetch.py")),
+         version, REGISTRY_VERSION_IDS[dataset], command,
+         "dataset", "download", reference, "--export", "--output-dir", str(destination)],
         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
     )
     if result.returncode:
         # Harbor diagnostics can contain task material: never echo them.
         raise RuntimeError(f"Harbor download failed for {reference} (exit {result.returncode})")
     return destination / name
+
+
+# Public package registry used by Harbor 0.22.0 (harbor.auth.constants).
+REGISTRY_URL = "https://ofhuhcpkvzjlejydnvyd.supabase.co"
+# Published anonymous API key, not a user credential.
+REGISTRY_PUBLIC_KEY = "sb_publishable_Z-vuQbpvpG-PStjbh4yE0Q_e-d3MTIH"
+
+
+def registry_open(path: str):
+    return urlopen(Request(REGISTRY_URL + path, headers={
+        "apikey": REGISTRY_PUBLIC_KEY,
+    }), timeout=120)
+
+
+def registry_rows(table: str, query: dict) -> list[dict]:
+    rows = []
+    while True:
+        with registry_open("/rest/v1/" + table + "?" + urlencode({
+            **query, "limit": 1000, "offset": len(rows),
+        })) as response:
+            page = json.load(response)
+        if not isinstance(page, list):
+            raise ValueError("Invalid registry response")
+        rows.extend(page)
+        if len(page) < 1000:
+            return rows
+
+
+def resolve_registry_identity(dataset: str) -> str:
+    """Check the registry's content-hash mapping before enumerating any tasks."""
+    dataset, name, version = pinned_dataset(dataset)
+    query = {
+        "package.name": "eq." + name,
+        "package.type": "eq.dataset", "package.org.name": "eq.terminal-bench",
+    }
+    versions = registry_rows("dataset_version", {
+        **query,
+        "select": "id,content_hash,package:package_id!inner(name,org:org_id!inner(name))",
+        "content_hash": "eq." + version.removeprefix("sha256:"), "order": "id",
+    })
+    version_id = REGISTRY_VERSION_IDS[dataset]
+    if (len(versions) != 1 or not isinstance(versions[0], dict)
+            or versions[0].get("content_hash") != version.removeprefix("sha256:")
+            or versions[0].get("id") != version_id):
+        raise ValueError(f"Registry version does not match pinned version: {dataset}")
+    return version_id
+
+
+def download_registry_dataset(dataset: str, destination: Path) -> Path:
+    """Read public PostgREST metadata and gzip task archives using only HTTP.
+
+    The trusted local manifest, not registry metadata, authenticates task bytes.
+    See docker/worker-snippet.md for endpoints and interpreter setup.
+    """
+    dataset, name, version = pinned_dataset(dataset)
+    version_id = resolve_registry_identity(dataset)
+    rows = registry_rows("dataset_version_task", {
+        "select": "task_version_id,task_version:task_version_id(archive_path,package:package_id(name))",
+        "dataset_version_id": "eq." + version_id,
+        "order": "task_version_id",
+    })
+    report = eligibility(dataset)
+    allowed = set(report["included"]) | {t["id"] for t in report["excluded"]}
+    tasks = {}
+    for row in rows:
+        version = row.get("task_version")
+        if not version or not version.get("package"):
+            raise ValueError(f"Registry task unavailable: {dataset}")
+        task = version["package"]["name"]
+        if task not in allowed or task in tasks:
+            raise ValueError(f"Unexpected or duplicate registry task: {dataset}")
+        tasks[task] = version["archive_path"]
+    if not set(report["included"]) <= tasks.keys():
+        raise ValueError(f"Missing registry tasks: {dataset}")
+    root = destination / name
+    root.mkdir(parents=True)
+    records = manifest()["datasets"][dataset]["tasks"]
+    for task in report["included"]:
+        target = root / task
+        target.mkdir()
+        with tempfile.TemporaryFile() as archive:
+            with registry_open("/storage/v1/object/packages/" + quote(tasks[task], safe="/")) as response:
+                shutil.copyfileobj(response, archive)
+            archive.seek(0)
+            with tarfile.open(fileobj=archive, mode="r:gz") as bundle:
+                seen = set()
+                for member in bundle:
+                    path = PurePosixPath(member.name)
+                    if path.is_absolute() or ".." in path.parts:
+                        raise ValueError(f"Unsafe archive path: {dataset}/{task}")
+                    relative = path.as_posix()
+                    if not (retained_file(relative) or relative in records[task]["files"]):
+                        continue
+                    if member.isdir():
+                        continue
+                    if not member.isfile() or relative in seen:
+                        raise ValueError(f"Unsafe or duplicate archive file: {dataset}/{task}")
+                    seen.add(relative)
+                    output = target / relative
+                    output.parent.mkdir(parents=True, exist_ok=True)
+                    with bundle.extractfile(member) as source, output.open("wb") as sink:
+                        shutil.copyfileobj(source, sink)
+    return root
 
 
 def expected_files(dataset: str) -> dict[str, str]:
@@ -139,7 +268,7 @@ def main(argv=None) -> int:
     args = parser.parse_args(argv)
     try:
         fetch_data(verify_only=args.verify_only)
-    except (OSError, ValueError, RuntimeError) as exc:
+    except (OSError, ValueError, RuntimeError, tarfile.TarError) as exc:
         print(f"Terminal-Bench data error: {exc}", file=sys.stderr)
         return 1
     return 0
