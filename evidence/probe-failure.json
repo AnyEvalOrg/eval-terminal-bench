@@ -1,0 +1,9 @@
+{
+  "command": [
+    "/Users/jperla/josh/repos/eval-terminal-bench/k8s/spike2.py",
+    "probe"
+  ],
+  "error_type": "RuntimeError",
+  "error": "Isolation probes or off-list warning evidence failed",
+  "time": "2026-09-11T18:36:02.976610+00:00"
+}

@@ -1,0 +1,388 @@
+{
+  "apiVersion": "v1",
+  "kind": "Pod",
+  "metadata": {
+    "annotations": {
+      "autopilot.gke.io/selector-toleration": "{\"inputTolerations\":[{\"key\":\"node.kubernetes.io/not-ready\",\"operator\":\"Exists\",\"effect\":\"NoExecute\",\"tolerationSeconds\":300},{\"key\":\"node.kubernetes.io/unreachable\",\"operator\":\"Exists\",\"effect\":\"NoExecute\",\"tolerationSeconds\":300},{\"key\":\"sandbox.gke.io/runtime\",\"operator\":\"Equal\",\"value\":\"gvisor\",\"effect\":\"NoSchedule\"},{\"key\":\"kubernetes.io/arch\",\"operator\":\"Equal\",\"value\":\"amd64\",\"effect\":\"NoSchedule\"}],\"outputTolerations\":[{\"key\":\"node.kubernetes.io/not-ready\",\"operator\":\"Exists\",\"effect\":\"NoExecute\",\"tolerationSeconds\":300},{\"key\":\"node.kubernetes.io/unreachable\",\"operator\":\"Exists\",\"effect\":\"NoExecute\",\"tolerationSeconds\":300},{\"key\":\"sandbox.gke.io/runtime\",\"operator\":\"Equal\",\"value\":\"gvisor\",\"effect\":\"NoSchedule\"},{\"key\":\"kubernetes.io/arch\",\"operator\":\"Equal\",\"value\":\"amd64\",\"effect\":\"NoSchedule\"},{\"key\":\"cloud.google.com/gke-spot\",\"operator\":\"Equal\",\"value\":\"true\",\"effect\":\"NoSchedule\"}],\"modified\":true}"
+    },
+    "creationTimestamp": "2026-09-11T18:36:31+00:00",
+    "generation": 1,
+    "labels": {
+      "anyeval.io/environment": "iron-proxy-probe-1789151791",
+      "topology.kubernetes.io/region": "us-central1",
+      "topology.kubernetes.io/zone": "us-central1-c"
+    },
+    "managedFields": [
+      {
+        "apiVersion": "v1",
+        "fieldsType": "FieldsV1",
+        "fieldsV1": {
+          "f:metadata": {
+            "f:labels": {
+              ".": {},
+              "f:anyeval.io/environment": {}
+            }
+          },
+          "f:spec": {
+            "f:automountServiceAccountToken": {},
+            "f:containers": {
+              "k:{\"name\":\"main\"}": {
+                ".": {},
+                "f:command": {},
+                "f:env": {
+                  ".": {},
+                  "k:{\"name\":\"HTTPS_PROXY\"}": {
+                    ".": {},
+                    "f:name": {},
+                    "f:value": {}
+                  },
+                  "k:{\"name\":\"HTTP_PROXY\"}": {
+                    ".": {},
+                    "f:name": {},
+                    "f:value": {}
+                  },
+                  "k:{\"name\":\"NO_PROXY\"}": {
+                    ".": {},
+                    "f:name": {},
+                    "f:value": {}
+                  },
+                  "k:{\"name\":\"http_proxy\"}": {
+                    ".": {},
+                    "f:name": {},
+                    "f:value": {}
+                  },
+                  "k:{\"name\":\"https_proxy\"}": {
+                    ".": {},
+                    "f:name": {},
+                    "f:value": {}
+                  },
+                  "k:{\"name\":\"no_proxy\"}": {
+                    ".": {},
+                    "f:name": {},
+                    "f:value": {}
+                  }
+                },
+                "f:image": {},
+                "f:imagePullPolicy": {},
+                "f:name": {},
+                "f:resources": {
+                  ".": {},
+                  "f:limits": {
+                    ".": {},
+                    "f:cpu": {},
+                    "f:ephemeral-storage": {},
+                    "f:memory": {}
+                  },
+                  "f:requests": {
+                    ".": {},
+                    "f:cpu": {},
+                    "f:ephemeral-storage": {},
+                    "f:memory": {}
+                  }
+                },
+                "f:securityContext": {
+                  ".": {},
+                  "f:allowPrivilegeEscalation": {},
+                  "f:runAsUser": {}
+                },
+                "f:terminationMessagePath": {},
+                "f:terminationMessagePolicy": {}
+              }
+            },
+            "f:dnsConfig": {
+              ".": {},
+              "f:nameservers": {}
+            },
+            "f:dnsPolicy": {},
+            "f:enableServiceLinks": {},
+            "f:nodeSelector": {},
+            "f:restartPolicy": {},
+            "f:runtimeClassName": {},
+            "f:schedulerName": {},
+            "f:securityContext": {},
+            "f:terminationGracePeriodSeconds": {}
+          }
+        },
+        "manager": "OpenAPI-Generator",
+        "operation": "Update",
+        "time": "2026-09-11T18:36:31+00:00"
+      },
+      {
+        "apiVersion": "v1",
+        "fieldsType": "FieldsV1",
+        "fieldsV1": {
+          "f:status": {
+            "f:conditions": {
+              "k:{\"type\":\"ContainersReady\"}": {
+                ".": {},
+                "f:lastProbeTime": {},
+                "f:lastTransitionTime": {},
+                "f:observedGeneration": {},
+                "f:status": {},
+                "f:type": {}
+              },
+              "k:{\"type\":\"Initialized\"}": {
+                ".": {},
+                "f:lastProbeTime": {},
+                "f:lastTransitionTime": {},
+                "f:observedGeneration": {},
+                "f:status": {},
+                "f:type": {}
+              },
+              "k:{\"type\":\"PodReadyToStartContainers\"}": {
+                ".": {},
+                "f:lastProbeTime": {},
+                "f:lastTransitionTime": {},
+                "f:observedGeneration": {},
+                "f:status": {},
+                "f:type": {}
+              },
+              "k:{\"type\":\"PodScheduled\"}": {
+                "f:observedGeneration": {}
+              },
+              "k:{\"type\":\"Ready\"}": {
+                ".": {},
+                "f:lastProbeTime": {},
+                "f:lastTransitionTime": {},
+                "f:observedGeneration": {},
+                "f:status": {},
+                "f:type": {}
+              }
+            },
+            "f:containerStatuses": {},
+            "f:hostIP": {},
+            "f:hostIPs": {},
+            "f:observedGeneration": {},
+            "f:phase": {},
+            "f:podIP": {},
+            "f:podIPs": {
+              ".": {},
+              "k:{\"ip\":\"10.26.0.240\"}": {
+                ".": {},
+                "f:ip": {}
+              }
+            },
+            "f:startTime": {}
+          }
+        },
+        "manager": "kubelet",
+        "operation": "Update",
+        "subresource": "status",
+        "time": "2026-09-11T18:36:34+00:00"
+      }
+    ],
+    "name": "iron-proxy-probe-1789151791",
+    "namespace": "anyeval-sandbox",
+    "resourceVersion": "1789151794053055006",
+    "uid": "fa768053-110d-44d6-ae68-066eb048b046"
+  },
+  "spec": {
+    "automountServiceAccountToken": false,
+    "containers": [
+      {
+        "command": [
+          "sleep",
+          "infinity"
+        ],
+        "env": [
+          {
+            "name": "HTTP_PROXY",
+            "value": "http://34.118.229.224:8080"
+          },
+          {
+            "name": "HTTPS_PROXY",
+            "value": "http://34.118.229.224:8080"
+          },
+          {
+            "name": "http_proxy",
+            "value": "http://34.118.229.224:8080"
+          },
+          {
+            "name": "https_proxy",
+            "value": "http://34.118.229.224:8080"
+          },
+          {
+            "name": "NO_PROXY",
+            "value": "localhost,127.0.0.1"
+          },
+          {
+            "name": "no_proxy",
+            "value": "localhost,127.0.0.1"
+          }
+        ],
+        "image": "python:3.12-slim",
+        "imagePullPolicy": "IfNotPresent",
+        "name": "main",
+        "resources": {
+          "limits": {
+            "cpu": "500m",
+            "ephemeral-storage": "1Gi",
+            "memory": "1Gi"
+          },
+          "requests": {
+            "cpu": "500m",
+            "ephemeral-storage": "1Gi",
+            "memory": "1Gi"
+          }
+        },
+        "securityContext": {
+          "allowPrivilegeEscalation": false,
+          "capabilities": {
+            "drop": [
+              "NET_RAW"
+            ]
+          },
+          "runAsUser": 0
+        },
+        "terminationMessagePath": "/dev/termination-log",
+        "terminationMessagePolicy": "File"
+      }
+    ],
+    "dnsConfig": {
+      "nameservers": [
+        "34.118.229.224"
+      ]
+    },
+    "dnsPolicy": "None",
+    "enableServiceLinks": true,
+    "nodeName": "gk3-anyeval-sandbox-nap-1r1t2cw5-14e202b8-xwnq",
+    "nodeSelector": {
+      "cloud.google.com/gke-spot": "true",
+      "sandbox.gke.io/runtime": "gvisor"
+    },
+    "preemptionPolicy": "PreemptLowerPriority",
+    "priority": 0,
+    "restartPolicy": "Never",
+    "runtimeClassName": "gvisor",
+    "schedulerName": "gke.io/optimize-utilization-scheduler",
+    "securityContext": {},
+    "serviceAccount": "default",
+    "serviceAccountName": "default",
+    "terminationGracePeriodSeconds": 25,
+    "tolerations": [
+      {
+        "effect": "NoExecute",
+        "key": "node.kubernetes.io/not-ready",
+        "operator": "Exists",
+        "tolerationSeconds": 300
+      },
+      {
+        "effect": "NoExecute",
+        "key": "node.kubernetes.io/unreachable",
+        "operator": "Exists",
+        "tolerationSeconds": 300
+      },
+      {
+        "effect": "NoSchedule",
+        "key": "sandbox.gke.io/runtime",
+        "operator": "Equal",
+        "value": "gvisor"
+      },
+      {
+        "effect": "NoSchedule",
+        "key": "kubernetes.io/arch",
+        "operator": "Equal",
+        "value": "amd64"
+      },
+      {
+        "effect": "NoSchedule",
+        "key": "cloud.google.com/gke-spot",
+        "operator": "Equal",
+        "value": "true"
+      }
+    ]
+  },
+  "status": {
+    "conditions": [
+      {
+        "lastTransitionTime": "2026-09-11T18:36:34+00:00",
+        "observedGeneration": 1,
+        "status": "True",
+        "type": "PodReadyToStartContainers"
+      },
+      {
+        "lastTransitionTime": "2026-09-11T18:36:31+00:00",
+        "observedGeneration": 1,
+        "status": "True",
+        "type": "Initialized"
+      },
+      {
+        "lastTransitionTime": "2026-09-11T18:36:34+00:00",
+        "observedGeneration": 1,
+        "status": "True",
+        "type": "Ready"
+      },
+      {
+        "lastTransitionTime": "2026-09-11T18:36:34+00:00",
+        "observedGeneration": 1,
+        "status": "True",
+        "type": "ContainersReady"
+      },
+      {
+        "lastTransitionTime": "2026-09-11T18:36:31+00:00",
+        "observedGeneration": 1,
+        "status": "True",
+        "type": "PodScheduled"
+      }
+    ],
+    "containerStatuses": [
+      {
+        "allocatedResources": {
+          "cpu": "500m",
+          "ephemeral-storage": "1Gi",
+          "memory": "1Gi"
+        },
+        "containerID": "containerd://d5d1e474115f70606116c0d94d540f0ab14de24cbf665230975adb9cc038710b",
+        "image": "docker.io/library/python:3.12-slim",
+        "imageID": "docker.io/library/python@sha256:78387bc3881b8273120a12ebe6c1ab22b018ccc2c9adf565ae1ac9b536e184ea",
+        "lastState": {},
+        "name": "main",
+        "ready": true,
+        "resources": {
+          "limits": {
+            "cpu": "500m",
+            "ephemeral-storage": "1Gi",
+            "memory": "1Gi"
+          },
+          "requests": {
+            "cpu": "500m",
+            "ephemeral-storage": "1Gi",
+            "memory": "1Gi"
+          }
+        },
+        "restartCount": 0,
+        "started": true,
+        "state": {
+          "running": {
+            "startedAt": "2026-09-11T18:36:33+00:00"
+          }
+        },
+        "user": {
+          "linux": {
+            "gid": 0,
+            "supplementalGroups": [
+              0
+            ],
+            "uid": 0
+          }
+        }
+      }
+    ],
+    "hostIP": "10.128.15.194",
+    "hostIPs": [
+      {
+        "ip": "10.128.15.194"
+      }
+    ],
+    "observedGeneration": 1,
+    "phase": "Running",
+    "podIP": "10.26.0.240",
+    "podIPs": [
+      {
+        "ip": "10.26.0.240"
+      }
+    ],
+    "qosClass": "Guaranteed",
+    "startTime": "2026-09-11T18:36:31+00:00"
+  }
+}

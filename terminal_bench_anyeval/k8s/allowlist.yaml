@@ -1,0 +1,36 @@
+version: '4.0.1'
+hosts:
+  - {host: pypi.org, reason: Python package discovery for Python tasks.}
+  - {host: files.pythonhosted.org, reason: Python wheels and source distributions.}
+  - {host: deb.debian.org, reason: Debian build tools and system dependencies.}
+  - {host: security.debian.org, reason: Debian security package dependencies.}
+  - {host: archive.ubuntu.com, reason: Ubuntu build tools and system dependencies.}
+  - {host: security.ubuntu.com, reason: Ubuntu security package dependencies.}
+  - {host: ports.ubuntu.com, reason: Ubuntu packages for alternate architectures.}
+  - {host: registry.npmjs.org, reason: JavaScript and TypeScript package dependencies.}
+  - {host: crates.io, reason: Rust crate discovery and downloads.}
+  - {host: static.crates.io, reason: Rust crate archive delivery.}
+  - {host: index.crates.io, reason: Rust sparse package index.}
+  - {host: github.com, reason: Source repositories for build and repair tasks.}
+  - {host: objects.githubusercontent.com, reason: GitHub source and release objects.}
+  - {host: raw.githubusercontent.com, reason: Raw source files and installation scripts.}
+  - {host: codeload.github.com, reason: Source repository archive downloads.}
+  - {host: huggingface.co, reason: Model and dataset metadata and downloads.}
+  - {host: cdn-lfs.huggingface.co, reason: Large model and dataset file delivery.}
+  - {host: '*.hf.co', reason: Hugging Face CDN and Xet model and dataset delivery.}
+  - {host: astral.sh, reason: uv installation for Python environment setup.}
+  - {host: proxy.golang.org, reason: Go module downloads for Go build tasks.}
+  - {host: sum.golang.org, reason: Go module checksum verification.}
+  - {host: repo.anaconda.com, reason: Conda base packages for scientific environments.}
+  - {host: conda.anaconda.org, reason: Conda channel dependencies for scientific environments.}
+  - {host: rubygems.org, reason: Ruby gem dependencies.}
+  - {host: repo1.maven.org, reason: Java and JVM artifact dependencies.}
+  - {host: cloud.r-project.org, reason: CRAN packages for R and Stan statistical tasks.}
+  - {host: release-assets.githubusercontent.com, reason: GitHub release binaries for compiler and tool installation.}
+  - {host: releases.astral.sh, reason: uv release binary delivery for Python setup.}
+  - {host: download.pytorch.org, reason: PyTorch wheels for tensor and model tasks.}
+  - {host: download-r2.pytorch.org, reason: Redirected PyTorch wheel delivery for tensor and model tasks.}
+  - {host: www.povray.org, reason: POV-Ray source downloads for rendering build tasks.}
+  - {host: downloads.sourceforge.net, reason: SourceForge source archive delivery for legacy build tasks.}
+  - {host: sourceforge.net, reason: SourceForge project downloads and redirects for legacy build tasks.}
+  - {host: api.github.com, reason: GitHub release metadata for dependency installers.}

@@ -1,0 +1,15 @@
+{
+  "command": [
+    "gcloud",
+    "container",
+    "clusters",
+    "list",
+    "--project=openevalz-sbx-84737",
+    "--format=json"
+  ],
+  "cluster": "anyeval-sandbox",
+  "cidrs": [
+    "10.26.0.0/17",
+    "34.118.224.0/20"
+  ]
+}

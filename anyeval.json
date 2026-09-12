@@ -1,0 +1,83 @@
+{
+  "anyeval_version": 1,
+  "eval": {
+    "id": "terminal_bench_anyeval",
+    "slug": "terminal-bench",
+    "title": "Terminal-Bench: AnyEval eligible 2.1 and 4.0",
+    "group": "Coding",
+    "tags": [
+      "coding",
+      "terminal",
+      "agent",
+      "harbor"
+    ],
+    "source": "upstream"
+  },
+  "upstream": {
+    "repo": "https://github.com/laude-institute/terminal-bench",
+    "inspect_ai": "0.3.260",
+    "eval_version": "1.0.0",
+    "dependency": "harbor==0.22.0"
+  },
+  "execution": {
+    "class": "harbor",
+    "cost_class": "high",
+    "sandbox": null,
+    "requires_internet": true,
+    "fast": false,
+    "supports_k8s": true,
+    "command": [
+      "python",
+      "-m",
+      "terminal_bench_anyeval.trial",
+      "--spec",
+      "{spec}",
+      "--result",
+      "{result}"
+    ],
+    "contract_version": 1,
+    "env": {
+      "ANYEVAL_TB_EGRESS_PROXY": "1",
+      "ANYEVAL_TB_OFFLINE_PROTOCOL": "1",
+      "ANYEVAL_TB_NO_SPOT": "1"
+    }
+  },
+  "tasks": [
+    {
+      "name": "terminal_bench_2_1",
+      "samples": 89,
+      "dataset": "terminal-bench-2-1"
+    },
+    {
+      "name": "terminal_bench_4_0",
+      "samples": 44,
+      "dataset": "terminal-bench@4.0.0"
+    }
+  ],
+  "total_samples": 133,
+  "scaffolds": [
+    "terminus-2"
+  ],
+  "eligibility": {
+    "policy": "terminal_bench_eligible",
+    "files": [
+      "terminal_bench_anyeval/data/eligibility-2.1.json",
+      "terminal_bench_anyeval/data/eligibility-4.0.json"
+    ]
+  },
+  "external_assets": [
+    {
+      "type": "container",
+      "source": "Per-task prebuilt images in packaged task.toml"
+    },
+    {
+      "type": "service",
+      "source": "Worker-local AnyEval model shim and predeployed iron-proxy"
+    },
+    {
+      "type": "binary",
+      "source": "Operator-provided static tmux when absent from image"
+    }
+  ],
+  "generated": "2026-09-12"
+}

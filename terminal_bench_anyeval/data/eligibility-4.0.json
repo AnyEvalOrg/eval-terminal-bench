@@ -1,0 +1,214 @@
+{
+  "version": 1,
+  "dataset": "terminal-bench@4.0.0",
+  "dataset_version": "4.0.0",
+  "total": 66,
+  "included": [
+    "atrx-vep-crispr",
+    "batched-eval-parity",
+    "bun-sourcemap-leak",
+    "cad-model",
+    "cargo-flight-dispatch",
+    "coq-block-bound",
+    "data-anonymization",
+    "embedding-drift-monitor",
+    "fin-saccr-rwa",
+    "foodstuff-beta-activity",
+    "formal-crypto",
+    "freecad-impeller",
+    "freecad-platform-drawing",
+    "freecad-spring-clip",
+    "glycan-ms2-elucidation",
+    "gsea-proteomics",
+    "hof-topology-interpenetration",
+    "html-js-filter",
+    "interleaved-vigenere",
+    "ks-solver-cpp",
+    "layout-config-recreation",
+    "layout-config-recreation2",
+    "mp-checkpoint-consolidation",
+    "music-harmony",
+    "mvcc-lsm-compaction",
+    "ontology-kg-querying",
+    "photonic-waveguide-routing",
+    "pretrain-shard-corruption",
+    "production-planning",
+    "react-lead-form",
+    "retro-console-soc",
+    "risk-scorer-replay",
+    "roy-polymorph-cn",
+    "rs-archive-clone",
+    "satb-audio-transcription",
+    "session-window-debug",
+    "shadow-relay",
+    "sound-change-cascade",
+    "telecom-entity-resolution",
+    "uefi-bootkit",
+    "vf2-speedup-networkx",
+    "vllm-deepseek-streaming",
+    "wal-recovery-ordering",
+    "wdm-design"
+  ],
+  "excluded": [
+    {
+      "id": "biped-contact-dynamics",
+      "reasons": [
+        "storage>10GiB: agent requests 20480 MiB",
+        "storage>10GiB: verifier requests 20480 MiB"
+      ]
+    },
+    {
+      "id": "ctr-optimization",
+      "reasons": [
+        "compose: Compose manifest present"
+      ]
+    },
+    {
+      "id": "cumulative-layout-shift",
+      "reasons": [
+        "storage>10GiB: agent requests 20480 MiB",
+        "storage>10GiB: verifier requests 20480 MiB",
+        "compose: Compose manifest present"
+      ]
+    },
+    {
+      "id": "distributed-dedup",
+      "reasons": [
+        "storage>10GiB: agent requests 15000 MiB",
+        "storage>10GiB: verifier requests 15000 MiB"
+      ]
+    },
+    {
+      "id": "fp8-rmsnorm-gemm",
+      "reasons": [
+        "gpu: agent requests accelerator resources",
+        "storage>10GiB: agent requests 30720 MiB",
+        "gpu: verifier requests accelerator resources",
+        "storage>10GiB: verifier requests 30720 MiB"
+      ]
+    },
+    {
+      "id": "freight-dispatch-shift",
+      "reasons": [
+        "compose: Compose manifest present"
+      ]
+    },
+    {
+      "id": "heat-pump-warranty",
+      "reasons": [
+        "compose: Compose manifest present"
+      ]
+    },
+    {
+      "id": "intrastat-meldung",
+      "reasons": [
+        "storage>10GiB: agent requests 20480 MiB",
+        "storage>10GiB: verifier requests 20480 MiB",
+        "compose: Compose manifest present"
+      ]
+    },
+    {
+      "id": "jax-speedrun-gpu",
+      "reasons": [
+        "gpu: agent requests accelerator resources",
+        "storage>10GiB: agent requests 1024000 MiB",
+        "gpu: verifier requests accelerator resources",
+        "storage>10GiB: verifier requests 1024000 MiB"
+      ]
+    },
+    {
+      "id": "kv-live-surgery",
+      "reasons": [
+        "compose: Compose manifest present"
+      ]
+    },
+    {
+      "id": "lake-temp-glm",
+      "reasons": [
+        "storage>10GiB: agent requests 20480 MiB"
+      ]
+    },
+    {
+      "id": "legacy-utility-triage",
+      "reasons": [
+        "storage>10GiB: agent requests 20480 MiB",
+        "storage>10GiB: verifier requests 20480 MiB",
+        "compose: Compose manifest present"
+      ]
+    },
+    {
+      "id": "live-database-cutover",
+      "reasons": [
+        "storage>10GiB: agent requests 20480 MiB",
+        "storage>10GiB: verifier requests 40960 MiB",
+        "compose: Compose manifest present"
+      ]
+    },
+    {
+      "id": "math-eval-grader",
+      "reasons": [
+        "gpu: agent requests accelerator resources",
+        "storage>10GiB: agent requests 30720 MiB",
+        "gpu: verifier requests accelerator resources",
+        "storage>10GiB: verifier requests 30720 MiB"
+      ]
+    },
+    {
+      "id": "medical-claims-processing",
+      "reasons": [
+        "storage>10GiB: agent requests 20480 MiB",
+        "storage>10GiB: verifier requests 20480 MiB",
+        "compose: Compose manifest present"
+      ]
+    },
+    {
+      "id": "nextjs-performance",
+      "reasons": [
+        "storage>10GiB: agent requests 15360 MiB",
+        "storage>10GiB: verifier requests 15360 MiB",
+        "compose: Compose manifest present"
+      ]
+    },
+    {
+      "id": "payments-pipeline-fix",
+      "reasons": [
+        "compose: Compose manifest present"
+      ]
+    },
+    {
+      "id": "protein-autointerp-disulfide",
+      "reasons": [
+        "storage>10GiB: agent requests 20480 MiB",
+        "storage>10GiB: verifier requests 20480 MiB"
+      ]
+    },
+    {
+      "id": "sglang-qwen-burst",
+      "reasons": [
+        "storage>10GiB: agent requests 18000 MiB",
+        "storage>10GiB: verifier requests 18000 MiB"
+      ]
+    },
+    {
+      "id": "takens-embedding-lean",
+      "reasons": [
+        "storage>10GiB: agent requests 51200 MiB",
+        "storage>10GiB: verifier requests 51200 MiB"
+      ]
+    },
+    {
+      "id": "vba-userform-port",
+      "reasons": [
+        "storage>10GiB: agent requests 20480 MiB",
+        "storage>10GiB: verifier requests 20480 MiB"
+      ]
+    },
+    {
+      "id": "vpp-loss-divergence",
+      "reasons": [
+        "storage>10GiB: agent requests 15360 MiB",
+        "storage>10GiB: verifier requests 15360 MiB"
+      ]
+    }
+  ]
+}

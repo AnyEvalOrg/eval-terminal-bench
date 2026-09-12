@@ -1,0 +1,25 @@
+# AnyEval consumer schema v1: these are exact recursive keys, not path globs.
+# The publisher must use publication.py's allowlist for attached file contents.
+version: 1
+eval: terminal_bench_anyeval
+redact:
+  - tests
+  - test_contents
+  - test_files
+  - verifier_stdout
+  - verifier_stderr
+  - verifier_stdout_path
+  - verifier_stderr_path
+  - verifier_artifacts
+  - private_artifacts
+  - proxy_log
+  - proxy_log_path
+  - harbor_result
+  - trial_config
+  - task_toml
+  - solution
+  - solution_explanation
+  - verification_explanation
+  - exception
+  - error
+publish_in_full: [trajectory, trajectory_path]

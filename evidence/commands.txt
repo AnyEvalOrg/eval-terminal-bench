@@ -1,0 +1,30 @@
+Working directory: /Users/jperla/josh/repos/eval-terminal-bench
+No git commands used. No benchmark instructions, tests, solutions, or credentials displayed.
+
+Environment for deployment:
+SPIKE_SCRATCH=/private/tmp/claude-501/-Users-jperla-josh/7b8624b6-7520-461a-875c-e13899ff3a86/scratchpad
+KUBECONFIG=$SPIKE_SCRATCH/fakehome/.kube/config
+GOOGLE_APPLICATION_CREDENTIALS=$HOME/.config/gcloud/keys/claude-automation.json
+CLOUDSDK_AUTH_CREDENTIAL_FILE_OVERRIDE=$GOOGLE_APPLICATION_CREDENTIALS
+CLOUDSDK_CONFIG=$SPIKE_SCRATCH/fakehome/.config/gcloud
+
+Attempted:
+$SPIKE_SCRATCH/harbor-venv/bin/python k8s/spike2.py deploy
+Exit 1. Output: deploy-output.log; registry.json; deploy-failure.json.
+The first create_namespaced_service call could not connect. No resource was created.
+
+Attempted (again after fixing inherited sitecustomize warning):
+ANYEVAL_TB_EGRESS_PROXY=1 ANYEVAL_TB_OFFLINE_PROTOCOL=1 ANYEVAL_TB_TMUX_STATIC=$SPIKE_SCRATCH/tools/tmux-3.5a-linux-amd64-static zsh run_spike.sh
+Exit 1. Output: rerun-output.log; probe-failure.json; trial-window.json.
+Failed at the pre-trial probe Service lookup. No Harbor job was created.
+
+Local checks:
+$SPIKE_SCRATCH/harbor-venv/bin/python -m unittest -q test_anyeval_k8s test_spike2_egress
+25 checks passed; output saved in adapter-regression.log.
+zsh -n run_spike.sh
+Passed.
+$SPIKE_SCRATCH/harbor-venv/bin/python -m py_compile anyeval_k8s.py iron_proxy.py k8s/spike2.py k8s/probe_egress.py k8s/trial_evidence.py cli_support/sitecustomize.py
+Passed.
+
+Not executed in a pod: HTTP, raw egress and DNS probe commands.
+Their executable specification is k8s/probe_egress.py; no live result is claimed.

@@ -1,0 +1,10 @@
+{"command": "HTTPS CONNECT pypi.org:443; GET /simple/", "output": {"http_status": 200}, "passed": true}
+{"command": "HTTPS CONNECT example.com:443 (off-list, WARN mode); GET /", "output": {"http_status": 200}, "passed": true}
+{"command": "raw TCP 1.1.1.1:443, bypass all proxy env", "output": {"error_type": "TimeoutError", "error": "timed out"}, "passed": true}
+{"command": "raw TCP 8.8.8.8:53", "output": {"error_type": "TimeoutError", "error": "timed out"}, "passed": true}
+{"command": "DNS A pypi.org via UDP 8.8.8.8:53", "output": {"error_type": "TimeoutError", "error": "timed out"}, "passed": true}
+{"command": "DNS A pypi.org via UDP 1.1.1.1:53", "output": {"error_type": "TimeoutError", "error": "timed out"}, "passed": true}
+{"command": "read /etc/resolv.conf", "output": "nameserver 34.118.229.224\n", "passed": true}
+{"command": "DNS A pypi.org via UDP proxy 34.118.229.224:53", "output": {"server": "34.118.229.224", "answers": 1, "valid_response": true, "contains_proxy_ip": true}, "passed": true}
+{"command": "system resolver: socket.gethostbyname('pypi.org')", "output": "34.118.229.224", "passed": true}
+{"all_passed": true, "checks": 9}

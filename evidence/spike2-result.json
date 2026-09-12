@@ -1,0 +1,20 @@
+{
+  "status": "blocked_before_live_deployment_and_trial",
+  "proxy_created": false,
+  "service_created": false,
+  "digest_pinned": false,
+  "manifest_state": "unrendered placeholders; use deployment runner",
+  "isolation_proven": false,
+  "job_created": false,
+  "reward": null,
+  "verifier_stdout_tail": null,
+  "apt_success": null,
+  "uv_success": null,
+  "pytest_success": null,
+  "agent_input_tokens": null,
+  "agent_output_tokens": null,
+  "agent_cost_usd": null,
+  "new_model_calls": 0,
+  "local_adapter_checks_passed": 25,
+  "reason": "Credential refresh and Kubernetes API access blocked by this runtime; registry DNS unavailable."
+}

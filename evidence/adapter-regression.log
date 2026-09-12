@@ -1,0 +1,6 @@
+/private/tmp/claude-501/-Users-jperla-josh/7b8624b6-7520-461a-875c-e13899ff3a86/scratchpad/harbor-venv/lib/python3.12/site-packages/pydantic/main.py:263: DeprecationWarning: The 'allow_internet' field is deprecated. Use [environment].network_mode instead.
+  validated_self = self.__pydantic_validator__.validate_python(data, self_instance=self)
+----------------------------------------------------------------------
+Ran 25 tests in 0.104s
+
+OK

@@ -1,0 +1,173 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: iron-proxy
+  namespace: anyeval-sandbox
+  labels: &id001
+    anyeval.io/role: egress-proxy
+spec:
+  type: ClusterIP
+  clusterIP: 34.118.229.224
+  selector: *id001
+  ports:
+  - name: tunnel
+    port: 8080
+    targetPort: 8080
+    protocol: TCP
+  - name: dns-udp
+    port: 53
+    targetPort: 53
+    protocol: UDP
+  - name: dns-tcp
+    port: 53
+    targetPort: 53
+    protocol: TCP
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: iron-proxy-f65b03ba
+  namespace: anyeval-sandbox
+  annotations:
+    anyeval.io/config-sha256: 357bac01aee3596661d4b3d278f7504418c5b4d53fcdaa80ea9a2e4e7312c7c3
+    anyeval.io/allowlist-version: 4.0.1
+    anyeval.io/allowlist-sha256: 62c502b7520e9e60c24672c2468e1974307e6c8ba655f403cef81906be5c65e6
+    anyeval.io/cluster-cidrs: '["10.26.0.0/17", "34.118.224.0/20"]'
+immutable: true
+data:
+  proxy.yaml: |
+    dns:
+      listen: :53
+      proxy_ip: 34.118.229.224
+    proxy:
+      tunnel_listen: :8080
+      http_listen: 127.0.0.1:8081
+      https_listen: 127.0.0.1:8443
+      max_request_body_bytes: 67108864
+      max_response_body_bytes: 536870912
+      upstream_deny_cidrs:
+      - 10.0.0.0/8
+      - 172.16.0.0/12
+      - 192.168.0.0/16
+      - 169.254.0.0/16
+      - fc00::/7
+      - ::1/128
+      - 127.0.0.0/8
+      - 10.26.0.0/17
+      - 34.118.224.0/20
+    tls:
+      mode: sni-only
+    transforms:
+    - name: allowlist
+      config:
+        domains:
+        - pypi.org
+        - files.pythonhosted.org
+        - deb.debian.org
+        - security.debian.org
+        - archive.ubuntu.com
+        - security.ubuntu.com
+        - ports.ubuntu.com
+        - registry.npmjs.org
+        - crates.io
+        - static.crates.io
+        - index.crates.io
+        - github.com
+        - objects.githubusercontent.com
+        - raw.githubusercontent.com
+        - codeload.github.com
+        - huggingface.co
+        - cdn-lfs.huggingface.co
+        - '*.hf.co'
+        - astral.sh
+        - proxy.golang.org
+        - sum.golang.org
+        - repo.anaconda.com
+        - conda.anaconda.org
+        - rubygems.org
+        - repo1.maven.org
+        - cloud.r-project.org
+        - release-assets.githubusercontent.com
+        - releases.astral.sh
+        - download.pytorch.org
+        - download-r2.pytorch.org
+        - www.povray.org
+        - downloads.sourceforge.net
+        - sourceforge.net
+        - api.github.com
+        warn: false
+    metrics:
+      listen: 127.0.0.1:9090
+    log:
+      level: info
+  allowlist.yaml: |
+    version: 4.0.1
+    hosts:
+    - host: pypi.org
+      reason: Python package discovery for Python tasks.
+    - host: files.pythonhosted.org
+      reason: Python wheels and source distributions.
+    - host: deb.debian.org
+      reason: Debian build tools and system dependencies.
+    - host: security.debian.org
+      reason: Debian security package dependencies.
+    - host: archive.ubuntu.com
+      reason: Ubuntu build tools and system dependencies.
+    - host: security.ubuntu.com
+      reason: Ubuntu security package dependencies.
+    - host: ports.ubuntu.com
+      reason: Ubuntu packages for alternate architectures.
+    - host: registry.npmjs.org
+      reason: JavaScript and TypeScript package dependencies.
+    - host: crates.io
+      reason: Rust crate discovery and downloads.
+    - host: static.crates.io
+      reason: Rust crate archive delivery.
+    - host: index.crates.io
+      reason: Rust sparse package index.
+    - host: github.com
+      reason: Source repositories for build and repair tasks.
+    - host: objects.githubusercontent.com
+      reason: GitHub source and release objects.
+    - host: raw.githubusercontent.com
+      reason: Raw source files and installation scripts.
+    - host: codeload.github.com
+      reason: Source repository archive downloads.
+    - host: huggingface.co
+      reason: Model and dataset metadata and downloads.
+    - host: cdn-lfs.huggingface.co
+      reason: Large model and dataset file delivery.
+    - host: '*.hf.co'
+      reason: Hugging Face CDN and Xet model and dataset delivery.
+    - host: astral.sh
+      reason: uv installation for Python environment setup.
+    - host: proxy.golang.org
+      reason: Go module downloads for Go build tasks.
+    - host: sum.golang.org
+      reason: Go module checksum verification.
+    - host: repo.anaconda.com
+      reason: Conda base packages for scientific environments.
+    - host: conda.anaconda.org
+      reason: Conda channel dependencies for scientific environments.
+    - host: rubygems.org
+      reason: Ruby gem dependencies.
+    - host: repo1.maven.org
+      reason: Java and JVM artifact dependencies.
+    - host: cloud.r-project.org
+      reason: CRAN packages for R and Stan statistical tasks.
+    - host: release-assets.githubusercontent.com
+      reason: GitHub release binaries for compiler and tool installation.
+    - host: releases.astral.sh
+      reason: uv release binary delivery for Python setup.
+    - host: download.pytorch.org
+      reason: PyTorch wheels for tensor and model tasks.
+    - host: download-r2.pytorch.org
+      reason: Redirected PyTorch wheel delivery for tensor and model tasks.
+    - host: www.povray.org
+      reason: POV-Ray source downloads for rendering build tasks.
+    - host: downloads.sourceforge.net
+      reason: SourceForge source archive delivery for legacy build tasks.
+    - host: sourceforge.net
+      reason: SourceForge project downloads and redirects for legacy build tasks.
+    - host: api.github.com
+      reason: GitHub release metadata for dependency installers.

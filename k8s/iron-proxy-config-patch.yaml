@@ -1,0 +1,12 @@
+spec:
+  template:
+    metadata:
+      annotations:
+        anyeval.io/config-sha256: 357bac01aee3596661d4b3d278f7504418c5b4d53fcdaa80ea9a2e4e7312c7c3
+        anyeval.io/allowlist-version: 4.0.1
+        anyeval.io/allowlist-sha256: 62c502b7520e9e60c24672c2468e1974307e6c8ba655f403cef81906be5c65e6
+    spec:
+      volumes:
+      - name: config
+        configMap:
+          name: iron-proxy-f65b03ba

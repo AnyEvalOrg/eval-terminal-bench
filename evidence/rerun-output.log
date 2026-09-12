@@ -1,0 +1,2 @@
+ERROR:root:exec: process returned 1. sandbox ADC credential refresh failed
+probe failed: MaxRetryError; see evidence/probe-failure.json

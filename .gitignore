@@ -1,0 +1,13 @@
+jobs/
+build/
+dist/
+*.egg-info/
+__pycache__/
+.harbor-cache/
+.build/
+secret-audit.json
+unit-tests*.log
+terminal_bench_anyeval/data/terminal-bench-2-1/
+terminal_bench_anyeval/data/terminal-bench-4-0/
+terminal_bench_anyeval/data/.fetch.lock
+terminal_bench_anyeval/data/.fetch-*/

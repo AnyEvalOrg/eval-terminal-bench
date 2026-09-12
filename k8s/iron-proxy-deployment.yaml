@@ -1,0 +1,47 @@
+# The egress proxy as a Deployment: a bare Pod was preempted by Autopilot on 2026-09-11 and
+# never came back, which failed every trial that started afterwards. The priority class keeps
+# task pods from preempting it; the Deployment recreates it if a node goes away.
+apiVersion: scheduling.k8s.io/v1
+kind: PriorityClass
+metadata:
+  name: anyeval-egress-proxy
+value: 100000
+globalDefault: false
+description: Shared egress proxy for AnyEval sandboxes; must not be preempted by task pods.
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: iron-proxy
+  namespace: anyeval-sandbox
+  labels: {anyeval.io/role: egress-proxy}
+spec:
+  replicas: 1
+  strategy: {type: Recreate}
+  selector:
+    matchLabels: {anyeval.io/role: egress-proxy}
+  template:
+    metadata:
+      labels: {anyeval.io/role: egress-proxy}
+      annotations:
+        anyeval.io/allowlist-version: "4.0.1"
+        anyeval.io/allowlist-sha256: 62c502b7520e9e60c24672c2468e1974307e6c8ba655f403cef81906be5c65e6
+        anyeval.io/config-sha256: 357bac01aee3596661d4b3d278f7504418c5b4d53fcdaa80ea9a2e4e7312c7c3
+    spec:
+      priorityClassName: anyeval-egress-proxy
+      automountServiceAccountToken: false
+      dnsPolicy: ClusterFirst
+      containers:
+        - name: iron-proxy
+          image: ironsh/iron-proxy@sha256:c4628019c24f4cc8d77564a26b7c9cedb00accee6f93d06270e85fb8f9c6a7da
+          args: [-config, /etc/iron-proxy/proxy.yaml]
+          resources:
+            requests: {cpu: 500m, memory: 1Gi}
+            limits: {cpu: 500m, memory: 1Gi}
+          securityContext: {runAsUser: 0, allowPrivilegeEscalation: false}
+          readinessProbe: {tcpSocket: {port: 8080}, periodSeconds: 3}
+          volumeMounts:
+            - {name: config, mountPath: /etc/iron-proxy, readOnly: true}
+      volumes:
+        - name: config
+          configMap: {name: iron-proxy-f65b03ba}

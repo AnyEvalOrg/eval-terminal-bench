@@ -1,0 +1,213 @@
+{
+  "dataset_version": "4.0.0",
+  "root": "/private/tmp/claude-501/-Users-jperla-josh/7b8624b6-7520-461a-875c-e13899ff3a86/scratchpad/tb/4.0.0/terminal-bench",
+  "total": 66,
+  "eligible": [
+    "atrx-vep-crispr",
+    "batched-eval-parity",
+    "bun-sourcemap-leak",
+    "cad-model",
+    "cargo-flight-dispatch",
+    "coq-block-bound",
+    "data-anonymization",
+    "embedding-drift-monitor",
+    "fin-saccr-rwa",
+    "foodstuff-beta-activity",
+    "formal-crypto",
+    "freecad-impeller",
+    "freecad-platform-drawing",
+    "freecad-spring-clip",
+    "glycan-ms2-elucidation",
+    "gsea-proteomics",
+    "hof-topology-interpenetration",
+    "html-js-filter",
+    "interleaved-vigenere",
+    "ks-solver-cpp",
+    "layout-config-recreation",
+    "layout-config-recreation2",
+    "mp-checkpoint-consolidation",
+    "music-harmony",
+    "mvcc-lsm-compaction",
+    "ontology-kg-querying",
+    "photonic-waveguide-routing",
+    "pretrain-shard-corruption",
+    "production-planning",
+    "react-lead-form",
+    "retro-console-soc",
+    "risk-scorer-replay",
+    "roy-polymorph-cn",
+    "rs-archive-clone",
+    "satb-audio-transcription",
+    "session-window-debug",
+    "shadow-relay",
+    "sound-change-cascade",
+    "telecom-entity-resolution",
+    "uefi-bootkit",
+    "vf2-speedup-networkx",
+    "vllm-deepseek-streaming",
+    "wal-recovery-ordering",
+    "wdm-design"
+  ],
+  "excluded": [
+    {
+      "id": "biped-contact-dynamics",
+      "reasons": [
+        "environment: storage_mb must be positive and <= 10240",
+        "verifier.environment: storage_mb must be positive and <= 10240"
+      ]
+    },
+    {
+      "id": "ctr-optimization",
+      "reasons": [
+        "Compose manifest present"
+      ]
+    },
+    {
+      "id": "cumulative-layout-shift",
+      "reasons": [
+        "environment: storage_mb must be positive and <= 10240",
+        "verifier.environment: storage_mb must be positive and <= 10240",
+        "Compose manifest present"
+      ]
+    },
+    {
+      "id": "distributed-dedup",
+      "reasons": [
+        "environment: storage_mb must be positive and <= 10240",
+        "verifier.environment: storage_mb must be positive and <= 10240"
+      ]
+    },
+    {
+      "id": "fp8-rmsnorm-gemm",
+      "reasons": [
+        "environment: GPU/gpu_types requested",
+        "environment: storage_mb must be positive and <= 10240",
+        "verifier.environment: GPU/gpu_types requested",
+        "verifier.environment: storage_mb must be positive and <= 10240"
+      ]
+    },
+    {
+      "id": "freight-dispatch-shift",
+      "reasons": [
+        "Compose manifest present"
+      ]
+    },
+    {
+      "id": "heat-pump-warranty",
+      "reasons": [
+        "Compose manifest present"
+      ]
+    },
+    {
+      "id": "intrastat-meldung",
+      "reasons": [
+        "environment: storage_mb must be positive and <= 10240",
+        "verifier.environment: storage_mb must be positive and <= 10240",
+        "Compose manifest present"
+      ]
+    },
+    {
+      "id": "jax-speedrun-gpu",
+      "reasons": [
+        "environment: GPU/gpu_types requested",
+        "environment: storage_mb must be positive and <= 10240",
+        "verifier.environment: GPU/gpu_types requested",
+        "verifier.environment: storage_mb must be positive and <= 10240"
+      ]
+    },
+    {
+      "id": "kv-live-surgery",
+      "reasons": [
+        "Compose manifest present"
+      ]
+    },
+    {
+      "id": "lake-temp-glm",
+      "reasons": [
+        "environment: storage_mb must be positive and <= 10240"
+      ]
+    },
+    {
+      "id": "legacy-utility-triage",
+      "reasons": [
+        "environment: storage_mb must be positive and <= 10240",
+        "verifier.environment: storage_mb must be positive and <= 10240",
+        "Compose manifest present"
+      ]
+    },
+    {
+      "id": "live-database-cutover",
+      "reasons": [
+        "environment: storage_mb must be positive and <= 10240",
+        "verifier.environment: storage_mb must be positive and <= 10240",
+        "Compose manifest present"
+      ]
+    },
+    {
+      "id": "math-eval-grader",
+      "reasons": [
+        "environment: GPU/gpu_types requested",
+        "environment: storage_mb must be positive and <= 10240",
+        "verifier.environment: GPU/gpu_types requested",
+        "verifier.environment: storage_mb must be positive and <= 10240"
+      ]
+    },
+    {
+      "id": "medical-claims-processing",
+      "reasons": [
+        "environment: storage_mb must be positive and <= 10240",
+        "verifier.environment: storage_mb must be positive and <= 10240",
+        "Compose manifest present"
+      ]
+    },
+    {
+      "id": "nextjs-performance",
+      "reasons": [
+        "environment: storage_mb must be positive and <= 10240",
+        "verifier.environment: storage_mb must be positive and <= 10240",
+        "Compose manifest present"
+      ]
+    },
+    {
+      "id": "payments-pipeline-fix",
+      "reasons": [
+        "Compose manifest present"
+      ]
+    },
+    {
+      "id": "protein-autointerp-disulfide",
+      "reasons": [
+        "environment: storage_mb must be positive and <= 10240",
+        "verifier.environment: storage_mb must be positive and <= 10240"
+      ]
+    },
+    {
+      "id": "sglang-qwen-burst",
+      "reasons": [
+        "environment: storage_mb must be positive and <= 10240",
+        "verifier.environment: storage_mb must be positive and <= 10240"
+      ]
+    },
+    {
+      "id": "takens-embedding-lean",
+      "reasons": [
+        "environment: storage_mb must be positive and <= 10240",
+        "verifier.environment: storage_mb must be positive and <= 10240"
+      ]
+    },
+    {
+      "id": "vba-userform-port",
+      "reasons": [
+        "environment: storage_mb must be positive and <= 10240",
+        "verifier.environment: storage_mb must be positive and <= 10240"
+      ]
+    },
+    {
+      "id": "vpp-loss-divergence",
+      "reasons": [
+        "environment: storage_mb must be positive and <= 10240",
+        "verifier.environment: storage_mb must be positive and <= 10240"
+      ]
+    }
+  ]
+}
