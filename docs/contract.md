@@ -208,6 +208,20 @@ explicit message; CI must supply its reviewed companion checkout. Synthetic API
 objects exercise real adapter capture, the real child CLI writes result bytes,
 and the actual parent parser reads those bytes before provenance validation.
 
+## Egress proxy placement
+
+The iron-proxy Deployment (`k8s/iron-proxy-deployment.yaml`) is shared by every
+trial, and each trial pins the proxy pod UID at start and refuses publication if
+it changes. It therefore runs on standard (non-Spot) nodes via
+`nodeSelector: cloud.google.com/gke-provisioning: standard`, with the
+`cluster-autoscaler.kubernetes.io/safe-to-evict: "false"` annotation, and the
+`anyeval-egress-proxy` PriorityClass. Autopilot honours that annotation for at
+most seven days per pod (extended-duration pods), so scale-down can still move a
+proxy older than that, and node failures or a Deployment rollout move it at any
+time; every trial in flight at that moment loses its pinned proxy UID and is
+refused publication (the run stays unpublished and a resumed sweep re-runs it).
+On 2026-09-12 two proxy reschedules invalidated every in-flight trial's evidence.
+
 ## Execution and transfer bounds
 
 The adapter requests and checks no hostNetwork/hostPID/hostIPC, no hostPath,

@@ -24,11 +24,20 @@ spec:
     metadata:
       labels: {anyeval.io/role: egress-proxy}
       annotations:
+        cluster-autoscaler.kubernetes.io/safe-to-evict: "false"
         anyeval.io/allowlist-version: "4.0.1"
         anyeval.io/allowlist-sha256: 62c502b7520e9e60c24672c2468e1974307e6c8ba655f403cef81906be5c65e6
         anyeval.io/config-sha256: 357bac01aee3596661d4b3d278f7504418c5b4d53fcdaa80ea9a2e4e7312c7c3
     spec:
       priorityClassName: anyeval-egress-proxy
+      # The proxy is shared infrastructure: every in-flight trial pins its pod UID
+      # at start and refuses publication if it changes. On 2026-09-12 it was
+      # rescheduled twice (Spot preemption, then autoscaler consolidation) and each
+      # time every running trial lost its evidence. Standard nodes, not Spot; the
+      # safe-to-evict annotation holds off autoscaler drains for up to seven days
+      # per pod (Autopilot's extended-duration limit), not forever.
+      nodeSelector:
+        cloud.google.com/gke-provisioning: standard
       automountServiceAccountToken: false
       dnsPolicy: ClusterFirst
       containers:
