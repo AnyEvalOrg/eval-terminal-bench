@@ -187,7 +187,7 @@ def test_wheel_contains_only_manifests_and_no_task_data(wheel_path):
         for name in ('redaction.yaml', 'anyeval.json', 'k8s/allowlist.yaml'):
             assert 'terminal_bench_anyeval/' + name in names
         assert not any(n.endswith('/task.toml') or '/tests/' in n for n in names)
-        assert len(wheel_data) == 3
+        assert len(wheel_data) == 4
         assert 'terminal_bench_anyeval/fetch_data.py' in names
 
 

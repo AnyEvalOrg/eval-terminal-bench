@@ -23,7 +23,7 @@ packages = ["terminal_bench_anyeval"]
 include-package-data = true
 
 [tool.setuptools.package-data]
-terminal_bench_anyeval = ["data/manifest.json", "data/eligibility-*.json", "*.yaml", "*.json", "k8s/*.yaml"]
+terminal_bench_anyeval = ["data/manifest.json", "data/image-digests.json", "data/eligibility-*.json", "*.yaml", "*.json", "k8s/*.yaml", "docs/*.md"]
 
 [tool.setuptools.exclude-package-data]
 "*" = ["data/terminal-bench-2-1/*", "data/terminal-bench-2-1/**/*", "data/terminal-bench-4-0/*", "data/terminal-bench-4-0/**/*", "**/__pycache__/*", "**/.DS_Store"]
